@@ -10,10 +10,12 @@ readme = "README.md"
 authors = [
     { name = "DongWon Moon", email = "ansehddnjs187@gmail.com" },
 ]
-
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Database",
@@ -23,7 +25,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "typer",
+    "typer[all]",
     "openai",
     "python-dotenv",
     "PyYAML",
@@ -32,16 +34,20 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg2-binary"]
+mariadb = ["mysql-connector-python"]
 google = ["google-generativeai"]
+ollama = ["ollama"]
 
 all = [
-    "data-scribe[postgres]",
-    "data-scribe[google]",
+    "psycopg2-binary",
+    "mysql-connector-python",
+    "google-generativeai",
+    "ollama",
 ]
 
 [tool.setuptools.packages.find]
 include = ["data_scribe*"]
-exclude = ["jaffle_shop*"]
+exclude = ["jaffle_shop*", "tests*"]
 
 [project.scripts]
 data-scribe = "data_scribe.main:app"

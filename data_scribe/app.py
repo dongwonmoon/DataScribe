@@ -182,8 +182,13 @@ def scan_dbt(
     ),
     update_yaml: bool = typer.Option(
         False,
-        "--update-yaml",
+        "--update",
         help="Update the dbt schema.yml file directly with the AI description.",
+    ),
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help="Run in CI mode. Fails if documentation is outdated or missing.",
     ),
 ):
     """
@@ -199,6 +204,18 @@ def scan_dbt(
     logger.info("Generating dbt catalog...")
     # Create a DbtCatalogGenerator and generate the catalog
     catalog = DbtCatalogGenerator(llm_client).generate_catalog(dbt_project_dir)
+
+    if check:
+        logger.info("Running in --check mode (CI mode)...")
+        writer = DbtYamlWriter(dbt_project_dir, check_mode=True)
+        updates_needed = writer.update_yaml_files(catalog)
+
+        if updates_needed:
+            logger.error("CI CHECK FAILED: Documentation is outdated or missing.")
+            logger.error("Run 'data-scribe dbt --project-dir ... --update' to fix.")
+            raise typer.Exit(code=1)
+        else:
+            logger.info("CI CHECK PASSED: All dbt documentation is up-to-date.")
 
     if update_yaml:
         logger.info("Starting dbt schema.yml update process...")
