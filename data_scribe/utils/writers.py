@@ -9,6 +9,7 @@ from typing import Dict, List, Any
 import os
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.error import YAMLError
 
 from data_scribe.utils.logger import get_logger
 
@@ -144,13 +145,20 @@ class DbtYamlWriter:
 
     def find_schema_files(self) -> List[str]:
         """Finds all 'schema.yml' (or '.yml') files in the dbt 'models' directories."""
-        model_path = os.path.join(self.dbt_project_dir, "models")
+        model_paths = [
+            os.path.join(self.dbt_project_dir, "models"),
+            os.path.join(self.dbt_project_dir, "seeds"),
+            os.path.join(self.dbt_project_dir, "snapshots"),
+        ]
         schema_files = []
-        for root, _, files in os.walk(model_path):
-            for file in files:
-                if file.endswith((".yml", ".yaml")):
-                    if "schema" in file or "sources" in file:
-                        schema_files.append(os.path.join(root, file))
+        for path in model_paths:
+            if not os.path.exists(path):
+                continue
+            for root, _, files in os.walk(path):
+                for file in files:
+                    if file.endswith((".yml", ".yaml")):
+                        if "dbt_project" not in file:
+                            schema_files.append(os.path.join(root, file))
 
         logger.info(f"Found schema files to check: {schema_files}")
         return schema_files
@@ -161,7 +169,7 @@ class DbtYamlWriter:
         """
         schema_files = self.find_schema_files()
         if not schema_files:
-            logger.warning("No schema.yml files found in 'models' directories.")
+            logger.warning("No .yml files found in 'models' directories.")
             return
 
         for file_path in schema_files:
@@ -172,48 +180,57 @@ class DbtYamlWriter:
 
     def _update_single_file(self, file_path: str, catalog_data: Dict[str, Any]):
         """Updates a single schema.yml file."""
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = self.yaml.load(f)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = self.yaml.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load YAML file {file_path}: {e}")
+            return
 
         if not data:
             logger.info(f"Skipping empty YAML file: {file_path}")
             return
 
-        models = data.get("models", [])
-        if not models:
-            logger.info(f"No models found in YAML file: {file_path}")
-            return
-
-        logger.info(f"Checking '{file_path}' for models to update...")
+        node_types = ["models", "sources", "seeds", "snapshots"]
         file_updated = False
 
-        for model_config in models:
-            model_name = model_config.get("name")
+        for node_type in node_types:
+            if node_type not in data:
+                continue
 
-            if model_name in catalog_data:
-                logger.info(f"  -> Found model '{model_name}' in YAML.")
-                ai_model_data = catalog_data[model_name]
+            for node_config in data[node_type]:
+                if not isinstance(node_config, CommentedMap):
+                    continue
 
-                if "columns" in model_config:
-                    for column_config in model_config["columns"]:
-                        column_name = column_config.get("name")
+                node_name = node_config.get("name")
 
-                        ai_column = next(
-                            (
-                                c
-                                for c in ai_model_data["columns"]
-                                if c["name"] == column_name
-                            ),
-                            None,
-                        )
+                if node_type == "models" and node_name in catalog_data:
+                    logger.info(f" -> Found model '{node_name}' in YAML.")
+                    ai_model_data = catalog_data[node_name]
 
-                        if ai_column:
-                            if not column_config.get("description"):
-                                logger.info(
-                                    f"    - Updating description for column '{column_name}'"
-                                )
-                                column_config["description"] = ai_column["description"]
-                                file_updated = True
+                    if "columns" in node_config:
+                        for column_config in node_config["columns"]:
+                            column_name = column_config.get("name")
+
+                            ai_column = next(
+                                (
+                                    c
+                                    for c in ai_model_data["columns"]
+                                    if c["name"] == column_name
+                                ),
+                                None,
+                            )
+
+                            if ai_column:
+                                ai_data_dict = ai_column.get("ai_generated", {})
+
+                                for key, ai_value in ai_data_dict.items():
+                                    if not column_config.get(key):
+                                        logger.info(
+                                            f"    - Updating '{node_name}.{column_name}' with new key: '{key}'"
+                                        )
+                                        column_config[key] = ai_value
+                                        file_updated = True
 
         if file_updated:
             try:

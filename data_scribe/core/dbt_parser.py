@@ -29,9 +29,7 @@ class DbtManifestParser:
                              directory and 'manifest.json' are located.
         """
         # Construct the full path to the manifest.json file
-        self.manifest_path = os.path.join(
-            dbt_project_dir, "target", "manifest.json"
-        )
+        self.manifest_path = os.path.join(dbt_project_dir, "target", "manifest.json")
         # Load the manifest data upon initialization
         self.manifest_data = self._load_manifest()
 

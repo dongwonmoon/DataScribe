@@ -6,6 +6,7 @@ extracts model and column information, and uses an LLM to generate descriptions.
 """
 
 from typing import Dict, Any
+from ruamel.yaml import YAML
 
 from data_scribe.core.interfaces import BaseLLMClient
 from data_scribe.core.dbt_parser import DbtManifestParser
@@ -29,6 +30,8 @@ class DbtCatalogGenerator:
             llm_client: An instance of a class that implements the BaseLLMClient interface.
         """
         self.llm_client = llm_client
+        self.yaml_parser = YAML()
+        logger.info("DbtCatalogGenerator initialized.")
 
     def generate_catalog(self, dbt_project_dir: str) -> Dict[str, Any]:
         """
@@ -78,15 +81,26 @@ class DbtCatalogGenerator:
                     col_type=col_type,
                     raw_sql=raw_sql,
                 )
-                col_desc = self.llm_client.get_description(
-                    col_prompt, max_tokens=50
+                yaml_snippet_str = self.llm_client.get_description(
+                    col_prompt, max_tokens=250
                 )
+
+                try:
+                    ai_data_dict = self.yaml_parser.load(yaml_snippet_str)
+                    if not isinstance(ai_data_dict, dict):
+                        raise ValueError("AI did not return a valid YAML mapping.")
+                except Exception as e:
+                    logger.error(
+                        f"AI YAML snippet parsing failed for {model_name}.{col_name}: {e}"
+                    )
+                    logger.debug(f"Failed snippet:\n{yaml_snippet_str}")
+                    ai_data_dict = {"description": yaml_snippet_str.strip()}
 
                 enriched_columns.append(
                     {
                         "name": col_name,
                         "type": col_type,
-                        "description": col_desc,
+                        "ai_generated": ai_data_dict,
                     }
                 )
 
