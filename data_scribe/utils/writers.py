@@ -130,13 +130,14 @@ class DbtMarkdownWriter:
 
 
 class DbtYamlWriter:
-    """
-    Handles reading dbt schema.yml files, updating them
-    with AI-generated descriptions, and writing them back
-    while preserving comments and formatting.
-    """
+    """Handles reading dbt schema.yml files, updating them with AI-generated descriptions, and writing them back while preserving comments and formatting."""
 
     def __init__(self, dbt_project_dir: str):
+        """Initializes the DbtYamlWriter.
+
+        Args:
+            dbt_project_dir: The root directory of the dbt project.
+        """
         self.dbt_project_dir = dbt_project_dir
         self.yaml = YAML()
         self.yaml.preserve_quotes = True
@@ -144,7 +145,7 @@ class DbtYamlWriter:
         logger.info("DbtYamlWriter initialized.")
 
     def find_schema_files(self) -> List[str]:
-        """Finds all 'schema.yml' (or '.yml') files in the dbt 'models' directories."""
+        """Finds all 'schema.yml' (or '.yml') files in the dbt 'models', 'seeds', and 'snapshots' directories."""
         model_paths = [
             os.path.join(self.dbt_project_dir, "models"),
             os.path.join(self.dbt_project_dir, "seeds"),
@@ -156,20 +157,17 @@ class DbtYamlWriter:
                 continue
             for root, _, files in os.walk(path):
                 for file in files:
-                    if file.endswith((".yml", ".yaml")):
-                        if "dbt_project" not in file:
-                            schema_files.append(os.path.join(root, file))
+                    if file.endswith(('.yml', '.yaml')) and "dbt_project" not in file:
+                        schema_files.append(os.path.join(root, file))
 
         logger.info(f"Found schema files to check: {schema_files}")
         return schema_files
 
     def update_yaml_files(self, catalog_data: Dict[str, Any]):
-        """
-        Finds and updates all relevant schema.yml files with the catalog data.
-        """
+        """Finds and updates all relevant schema.yml files with the catalog data."""
         schema_files = self.find_schema_files()
         if not schema_files:
-            logger.warning("No .yml files found in 'models' directories.")
+            logger.warning("No .yml files found in 'models', 'seeds', or 'snapshots' directories.")
             return
 
         for file_path in schema_files:
@@ -179,11 +177,20 @@ class DbtYamlWriter:
                 logger.error(f"Error processing {file_path}: {e}", exc_info=True)
 
     def _update_single_file(self, file_path: str, catalog_data: Dict[str, Any]):
-        """Updates a single schema.yml file."""
+        """Updates a single schema.yml file with AI-generated descriptions.
+
+        This method reads a schema.yml file, finds the models defined in it,
+        and updates the column descriptions with the AI-generated content from the catalog.
+        It only updates fields that are not already present in the schema.yml file.
+
+        Args:
+            file_path: The path to the schema.yml file to update.
+            catalog_data: The AI-generated catalog data.
+        """
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 data = self.yaml.load(f)
-        except Exception as e:
+        except YAMLError as e:
             logger.error(f"Failed to load YAML file {file_path}: {e}")
             return
 
@@ -191,19 +198,16 @@ class DbtYamlWriter:
             logger.info(f"Skipping empty YAML file: {file_path}")
             return
 
-        node_types = ["models", "sources", "seeds", "snapshots"]
         file_updated = False
-
-        for node_type in node_types:
+        for node_type in ["models", "sources", "seeds", "snapshots"]:
             if node_type not in data:
                 continue
 
-            for node_config in data[node_type]:
+            for node_config in data.get(node_type, []):
                 if not isinstance(node_config, CommentedMap):
                     continue
 
                 node_name = node_config.get("name")
-
                 if node_type == "models" and node_name in catalog_data:
                     logger.info(f" -> Found model '{node_name}' in YAML.")
                     ai_model_data = catalog_data[node_name]
@@ -211,35 +215,22 @@ class DbtYamlWriter:
                     if "columns" in node_config:
                         for column_config in node_config["columns"]:
                             column_name = column_config.get("name")
-
-                            ai_column = next(
-                                (
-                                    c
-                                    for c in ai_model_data["columns"]
-                                    if c["name"] == column_name
-                                ),
-                                None,
-                            )
+                            ai_column = next((c for c in ai_model_data["columns"] if c["name"] == column_name), None)
 
                             if ai_column:
                                 ai_data_dict = ai_column.get("ai_generated", {})
-
                                 for key, ai_value in ai_data_dict.items():
                                     if not column_config.get(key):
-                                        logger.info(
-                                            f"    - Updating '{node_name}.{column_name}' with new key: '{key}'"
-                                        )
+                                        logger.info(f"    - Updating '{node_name}.{column_name}' with new key: '{key}'")
                                         column_config[key] = ai_value
                                         file_updated = True
 
         if file_updated:
             try:
-                with open(file_path, "w", encoding="utf-8") as f:
+                with open(file_path, 'w', encoding='utf-8') as f:
                     self.yaml.dump(data, f)
                 logger.info(f"Successfully updated '{file_path}' with AI descriptions.")
-            except Exception as e:
+            except IOError as e:
                 logger.error(f"Failed to write updates to '{file_path}': {e}")
         else:
-            logger.info(
-                f"No missing descriptions found in '{file_path}'. No changes made."
-            )
+            logger.info(f"No missing descriptions found in '{file_path}'. No changes made.")

@@ -220,3 +220,4 @@ create_sqlite_db.py
 dbt_catalog.md
 db_catalog.md
 test.db
+logs
