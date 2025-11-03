@@ -1,23 +1,26 @@
 default:
-  db: dev_sqlite
-  llm: openai_dev
+  db: local_sqlite
+  llm: local_ollama
 
 db_connections:
-  dev_sqlite:
-    type: "sqlite"
-    path: "test.db"
+  local_sqlite:
+    type: "sqlite"     
+    path: "test.db"    
 
-  prod_postgres:
+  dev_postgres:
     type: "postgres"
-    host: "prod.db.example.com"
+    host: "localhost"
+    port: 5432
     user: "admin"
-    password: "${PROD_DB_PASSWORD}"
+    password: "password"
+    dbname: "analytics_db"
 
 llm_providers:
-  openai_dev:
-    provider: "openai"
-    model: "gpt-3.5-turbo"
+  openai_prod:
+    provider: "openai"  
+    model: "gpt-4o-mini"
 
-  google_prod:
-    provider: "google"
-    model: "gemini-1.5-pro"
+  local_ollama:
+    provider: "ollama"
+    model: "granite3.3:2b"
+    host: "http://localhost:11434"

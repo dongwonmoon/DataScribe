@@ -10,10 +10,8 @@ registering them.
 from typing import Dict, Type, Any
 
 from data_scribe.core.interfaces import BaseConnector, BaseLLMClient
-from data_scribe.components.db_connectors.sqlite_connector import (
-    SQLiteConnector,
-)
-from data_scribe.components.llm_clients.openai_client import OpenAIClient
+from data_scribe.components.db_connectors import SQLiteConnector, PostgresConnector
+from data_scribe.components.llm_clients import OpenAIClient, OllamaClient
 from data_scribe.utils.logger import get_logger
 
 # Initialize a logger for this module
@@ -24,6 +22,7 @@ logger = get_logger(__name__)
 # To add a new connector, import it and add it to this registry.
 DB_CONNECTOR_REGISTRY: Dict[str, Type[BaseConnector]] = {
     "sqlite": SQLiteConnector,
+    "postgres": PostgresConnector,
 }
 
 # Registry for LLM clients.
@@ -31,6 +30,7 @@ DB_CONNECTOR_REGISTRY: Dict[str, Type[BaseConnector]] = {
 # To add a new client, import it and add it to this registry.
 LLM_CLIENT_REGISTRY: Dict[str, Type[BaseLLMClient]] = {
     "openai": OpenAIClient,
+    "ollama": OllamaClient,
 }
 
 
