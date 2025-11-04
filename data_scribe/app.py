@@ -1,8 +1,10 @@
 """
-This module defines the command-line interface (CLI) for Data Scribe.
+This module defines the command-line interface (CLI) for the Data Scribe application.
 
-It uses the Typer library to create a simple and intuitive CLI for scanning databases and dbt projects.
-The main commands are `db` and `dbt`, which correspond to scanning a database and a dbt project, respectively.
+It uses the Typer library to create a simple and intuitive CLI for scanning databases
+and dbt projects. The main commands, `db` and `dbt`, orchestrate the process of
+connecting to data sources, generating documentation with an LLM, and writing the
+output to various formats.
 """
 
 import typer
@@ -13,33 +15,29 @@ import functools
 from data_scribe.core.factory import get_db_connector, get_llm_client, get_writer
 from data_scribe.core.catalog_generator import CatalogGenerator
 from data_scribe.core.dbt_catalog_generator import DbtCatalogGenerator
-from data_scribe.utils.writers import (
-    MarkdownWriter,
-    DbtMarkdownWriter,
-    DbtYamlWriter,
-)
+from data_scribe.utils.writers import DbtYamlWriter
 from data_scribe.utils.utils import load_config
 from data_scribe.utils.logger import get_logger
 
 # Initialize a logger for this module
 logger = get_logger(__name__)
 
-# Create a Typer application instance. This is the main entry point for the CLI.
+# Create a Typer application instance, which serves as the main entry point for the CLI.
 app = typer.Typer()
 
 
 def load_and_validate_config(config_path: str):
     """
-    Loads and validates the YAML configuration file.
+    Loads and validates the YAML configuration file from the given path.
 
     Args:
-        config_path: The path to the configuration file.
+        config_path: The path to the `config.yaml` file.
 
     Returns:
-        A dictionary containing the loaded configuration.
+        A dictionary containing the loaded and parsed configuration.
 
     Raises:
-        typer.Exit: If the file is not found or if there is a parsing error.
+        typer.Exit: If the file is not found or if there is an error parsing the YAML.
     """
     try:
         logger.info(f"Loading configuration from '{config_path}'...")
@@ -56,22 +54,22 @@ def load_and_validate_config(config_path: str):
 
 def init_llm(config, llm_profile_name: str):
     """
-    Initializes the LLM client based on the provided configuration.
+    Initializes the LLM client based on the specified profile in the configuration.
 
     Args:
         config: The application configuration dictionary.
-        llm_profile_name: The name of the LLM profile to use.
+        llm_profile_name: The name of the LLM profile to use (e.g., 'openai_default').
 
     Returns:
         An instance of a class that implements the BaseLLMClient interface.
 
     Raises:
-        typer.Exit: If the LLM configuration is missing or invalid.
+        typer.Exit: If the specified LLM profile or its configuration is missing or invalid.
     """
     try:
-        # Get the parameters for the specified LLM provider
+        # Get the parameters for the specified LLM provider from the config
         llm_params = config["llm_providers"][llm_profile_name]
-        # The 'provider' key is used to determine which client to instantiate
+        # The 'provider' key determines which client class to instantiate
         llm_provider = llm_params.pop("provider")
         logger.info(f"Initializing LLM provider '{llm_provider}'...")
         # Use the factory to get an instance of the LLM client
@@ -85,24 +83,25 @@ def init_llm(config, llm_profile_name: str):
 
 def handle_exceptions(func):
     """
-    A decorator to handle common exceptions in a centralized way.
+    A decorator that provides centralized error handling for CLI commands.
 
-    This removes the need for repetitive try/except blocks in each command function.
-    It catches common errors like configuration issues and connection problems.
+    This wrapper catches common exceptions (e.g., configuration errors, connection
+    issues) and logs them in a user-friendly format before exiting the application.
+    This avoids repetitive try/except blocks in each command function.
     """
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
-            # Execute the decorated function
+            # Execute the decorated command function
             return func(*args, **kwargs)
         except (KeyError, ValueError, ConnectionError) as e:
-            # Handle expected errors gracefully
+            # Handle expected application errors gracefully
             logger.error(f"{type(e).__name__}: {e}")
             raise typer.Exit(code=1)
         except Exception as e:
-            # Handle any unexpected errors
-            logger.error(f"Unexpected error: {e}", exc_info=True)
+            # Handle any unexpected errors to prevent unhandled stack traces
+            logger.error(f"An unexpected error occurred: {e}", exc_info=True)
             raise typer.Exit(code=1)
 
     return wrapper
@@ -124,54 +123,55 @@ def scan_db(
     config_path: str = typer.Option(
         "config.yaml", "--config", help="The path to the configuration file."
     ),
-    output_filename: str = typer.Option(
-        "db_catalog.md", "--output", help="The name of the output file."
-    ),
-    output_format: str = typer.Option(
-        "markdown", "--format", help="Output format (e.g., markdown, json)."
+    output_profile: str = typer.Option(
+        None, "--output", help="The output profile name from config.yaml to use for writing the catalog."
     ),
 ):
     """
-    Scans a database schema, generates a data catalog using an LLM, and writes it to a Markdown file.
+    Scans a database schema, generates a data catalog using an LLM, and writes it to a specified output.
     """
-    # Load and validate the main configuration file
     config = load_and_validate_config(config_path)
 
-    # Determine which database and LLM profiles to use, either from the command line or the config file's defaults
+    # Determine which database and LLM profiles to use, falling back to defaults if not provided
     db_profile_name = db_profile or config.get("default", {}).get("db")
     llm_profile_name = llm_profile or config.get("default", {}).get("llm")
     if not db_profile_name or not llm_profile_name:
         logger.error(
-            "Missing profiles: specify --db/--llm or set defaults in config.yaml."
+            "Missing profiles. Please specify --db and --llm, or set defaults in config.yaml."
         )
         raise typer.Exit(code=1)
 
-    # Get the database connection parameters and instantiate the connector
+    # Instantiate the database connector using the factory
     db_params = config["db_connections"][db_profile_name]
     db_type = db_params.pop("type")
     db_connector = get_db_connector(db_type, db_params)
 
-    # Initialize the LLM client
     llm_client = init_llm(config, llm_profile_name)
 
-    logger.info("Generating data catalog...")
-    # Create a CatalogGenerator and generate the catalog
+    logger.info("Generating data catalog for the database...")
     catalog = CatalogGenerator(db_connector, llm_client).generate_catalog(
         db_profile_name
     )
+
+    if not output_profile:
+        logger.info("Catalog generated. No --output profile specified, so not writing to a file.")
+        db_connector.close()
+        return
+
     try:
-        writer = get_writer(output_format)
-        writer_kwargs = {
-            "output_filename": output_filename,
-            "db_profile_name": db_profile_name,
-        }
+        writer_params = config["output_profiles"][output_profile]
+        writer_type = writer_params.pop("type")
+        writer = get_writer(writer_type)
+
+        # Pass necessary context and parameters to the writer
+        writer_kwargs = {"db_profile_name": db_profile_name, **writer_params}
         writer.write(catalog, **writer_kwargs)
-        logger.info(
-            f"Catalog written to '{output_filename}' using {output_format} writer."
-        )
-    except (ValueError, IOError) as e:
-        logger.error(f"Failed to write catalog: {e}")
+        logger.info(f"Catalog written successfully using output profile: '{output_profile}'.")
+    except (KeyError, ValueError, IOError) as e:
+        logger.error(f"Failed to write catalog using profile '{output_profile}': {e}")
         raise typer.Exit(code=1)
+    finally:
+        db_connector.close()
 
 
 @app.command(name="dbt")
@@ -188,40 +188,34 @@ def scan_dbt(
     config_path: str = typer.Option(
         "config.yaml", "--config", help="The path to the configuration file."
     ),
-    output_filename: str = typer.Option(
-        "dbt_catalog.md", "--output", help="The name of the output file."
-    ),
-    output_format: str = typer.Option(
-        "dbt-markdown", "--format", help="Output format (default: dbt-markdown)."
+    output_profile: str = typer.Option(
+        None, "--output", help="The output profile name from config.yaml for writing the catalog."
     ),
     update_yaml: bool = typer.Option(
         False,
         "--update",
-        help="Update the dbt schema.yml file directly with the AI description.",
+        help="Update the dbt schema.yml files directly with AI-generated content.",
     ),
     check: bool = typer.Option(
         False,
         "--check",
-        help="Run in CI mode. Fails if documentation is outdated or missing.",
+        help="Run in CI mode. Fails if dbt documentation is outdated or missing.",
     ),
 ):
     """
-    Scans a dbt project, generates a data catalog, and manages documentation.
+    Scans a dbt project, generates a data catalog, and manages dbt documentation.
 
     This command can:
-    - Generate a Markdown catalog file.
-    - Directly update dbt schema.yml files with AI-generated content.
-    - Run in a CI check mode to ensure documentation is up-to-date.
+    - Generate a catalog file in various formats (e.g., Markdown, Confluence).
+    - Directly update dbt `schema.yml` files with AI-generated content.
+    - Run in a CI check mode to verify if documentation is up-to-date.
     """
-    # Load and validate the main configuration file
     config = load_and_validate_config(config_path)
 
-    # Determine which LLM profile to use
     llm_profile_name = llm_profile or config.get("default", {}).get("llm")
     llm_client = init_llm(config, llm_profile_name)
 
-    logger.info("Generating dbt catalog...")
-    # Create a DbtCatalogGenerator and generate the catalog
+    logger.info(f"Generating dbt catalog for project: {dbt_project_dir}")
     catalog = DbtCatalogGenerator(llm_client).generate_catalog(dbt_project_dir)
 
     if check:
@@ -230,26 +224,43 @@ def scan_dbt(
         updates_needed = writer.update_yaml_files(catalog)
 
         if updates_needed:
-            logger.error("CI CHECK FAILED: Documentation is outdated or missing.")
-            logger.error("Run 'data-scribe dbt --project-dir ... --update' to fix.")
+            logger.error("CI CHECK FAILED: dbt documentation is outdated or missing.")
+            logger.error("Run 'data-scribe dbt --project-dir ... --update' to fix this.")
             raise typer.Exit(code=1)
         else:
             logger.info("CI CHECK PASSED: All dbt documentation is up-to-date.")
 
     if update_yaml:
-        logger.info("Starting dbt schema.yml update process...")
+        logger.info("Updating dbt schema.yml files with AI-generated content...")
         DbtYamlWriter(dbt_project_dir).update_yaml_files(catalog)
-        logger.info("dbt schema.yml update complete.")
-    else:
+        logger.info("dbt schema.yml update process complete.")
+    elif output_profile:
         try:
-            logger.info(f"Using output format: '{output_format}'")
-            writer = get_writer(output_format)
+            logger.info(f"Using output profile: '{output_profile}'")
+            # 1. Retrieve the writer parameters from the specified output profile in config.yaml
+            writer_params = config["output_profiles"][output_profile]
+            writer_type = writer_params.pop("type")  # e.g., "dbt-markdown", "confluence"
+
+            # 2. Instantiate the appropriate writer using the factory
+            writer = get_writer(writer_type)
+
+            # 3. Prepare the arguments for the writer's `write` method.
+            #    This includes common context like the project name and the specific
+            #    parameters from the output profile (e.g., filename, URL).
             writer_kwargs = {
-                "output_filename": output_filename,
-                "project_name": dbt_project_dir,  # 👈 (수정) project_name 전달
+                "project_name": dbt_project_dir,
+                **writer_params,
             }
             writer.write(catalog, **writer_kwargs)
-            logger.info(f"DBT catalog written to '{output_filename}'.")
-        except (ValueError, IOError) as e:
-            logger.error(f"Failed to write catalog: {e}")
+            logger.info(
+                f"dbt catalog written successfully using profile: '{output_profile}'."
+            )
+        except (KeyError, ValueError, IOError) as e:
+            logger.error(
+                f"Failed to write catalog using profile '{output_profile}': {e}"
+            )
             raise typer.Exit(code=1)
+    else:
+        logger.info(
+            "Catalog generated. No output specified (--output, --update, or --check)."
+        )

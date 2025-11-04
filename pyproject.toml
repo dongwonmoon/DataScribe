@@ -36,12 +36,14 @@ postgres = ["psycopg2-binary"]
 mariadb = ["mysql-connector-python"]
 google = ["google-generativeai"]
 ollama = ["ollama"]
+confluence = ["atlassian-python-api"]
 
 all = [
     "psycopg2-binary",
     "mysql-connector-python",
     "google-generativeai",
     "ollama",
+    "atlassian-python-api"
 ]
 
 [tool.setuptools.packages.find]

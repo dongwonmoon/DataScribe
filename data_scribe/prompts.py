@@ -1,19 +1,30 @@
 """
-This module contains the prompt templates used to generate descriptions with the LLM.
+This module centralizes all prompt templates used for generating content with the LLM.
 
-Each constant is a formatted string that provides context and instructions to the language model
-for generating meaningful descriptions for database columns, dbt models, dbt columns, and model lineage.
+Each constant is a carefully formatted f-string that provides context, instructions,
+and few-shot examples to the language model. This helps ensure the model's output
+is structured and relevant for tasks like generating column descriptions, model summaries,
+and dbt metadata.
 """
 
 # Prompt template for generating a description for a database column.
-# This prompt asks the LLM to provide a brief, business-focused meaning of the column.
+# This prompt asks the LLM to act as a business analyst and provide a brief,
+# business-focused meaning of a database column.
+# Placeholders:
+# - {col_name}: The name of the column.
+# - {col_type}: The data type of the column.
+# - {table_name}: The name of the table the column belongs to.
 COLUMN_DESCRIPTION_PROMPT = """  
 Briefly describe the business meaning of the '{col_name}' ({col_type}) column in table '{table_name}' in under 15 characters.  
 (Example: Unique identifier of a user)  
 """
 
-# Prompt template for generating a summary for a dbt model.
-# This prompt provides the model's SQL code and asks the LLM to summarize its business purpose.
+# Prompt template for generating a high-level summary for a dbt model.
+# This prompt provides the model's raw SQL code and asks the LLM to act as a
+# dbt expert and summarize its business purpose.
+# Placeholders:
+# - {model_name}: The name of the dbt model.
+# - {raw_sql}: The raw SQL code that defines the model.
 DBT_MODEL_PROMPT = """  
 You are a dbt expert.  
 Below is the SQL query that defines the '{model_name}' dbt model.  
@@ -24,6 +35,13 @@ Summarize in 1-2 sentences what kind of data this model produces or aggregates f
 ```  
 """
 
+# Prompt template for generating a Mermaid.js lineage chart for a dbt model.
+# This prompt asks the LLM to act as a data architect, analyze the model's
+# dependencies (`ref` and `source` functions), and generate a simple, top-down
+# Mermaid graph showing only its direct parents.
+# Placeholders:
+# - {model_name}: The name of the dbt model.
+# - {raw_sql}: The raw SQL code that defines the model.
 DBT_MODEL_LINEAGE_PROMPT = """
 You are a data architect specializing in dbt.
 Below is the SQL query that defines the '{model_name}' dbt model.
@@ -57,8 +75,15 @@ graph TD
 ```
 """
 
-# Prompt template for generating a description for a dbt column.
-# This prompt provides the model's SQL and column details, asking for a concise business description.
+# Prompt template for generating a complete YAML metadata block for a dbt column.
+# This prompt asks the LLM to act as a senior data governance expert and generate
+# a YAML snippet containing a description, PII metadata, tags, and appropriate tests.
+# It is designed to produce output that can be directly used in a dbt `schema.yml` file.
+# Placeholders:
+# - {col_name}: The name of the column.
+# - {col_type}: The data type of the column.
+# - {model_name}: The name of the dbt model.
+# - {raw_sql}: The raw SQL code of the model for context.
 DBT_COLUMN_PROMPT = """
 You are a senior data governance expert using dbt.
 Analyze the column '{col_name}' ({col_type}) in the dbt model '{model_name}'.

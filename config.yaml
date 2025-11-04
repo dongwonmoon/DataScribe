@@ -35,3 +35,21 @@ llm_providers:
   google_gemini:
     provider: "google"
     model: "gemini-2.5-flash"
+
+output_profiles:
+  default_markdown:
+    type: "dbt-markdown"
+    filename: "dbt_catalog.md"
+
+  default_json:
+    type: "json"
+    filename: "catalog.json"
+
+  dev_confluence_space:
+    type: "confluence"
+    url: "https://YOUR_DOMAIN.atlassian.net"
+    space_key: "YOUR_SPACE_KEY"
+    parent_page_id: "12345678"
+    page_title_prefix: "Data Scribe Catalog"
+    username: "your-email@example.com"
+    api_token: "${CONFLUENCE_API_TOKEN}"
