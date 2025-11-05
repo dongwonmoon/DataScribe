@@ -1,3 +1,9 @@
+"""
+This module provides a concrete implementation of the BaseLLMClient for Google's Generative AI (Gemini) API.
+
+It handles the initialization of the Google GenAI client, sending prompts to the specified model,
+and returning the generated text descriptions.
+"""
 import google.generativeai as genai
 from data_scribe.core.interfaces import BaseLLMClient
 from data_scribe.utils.config import settings

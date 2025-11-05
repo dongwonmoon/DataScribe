@@ -40,35 +40,90 @@ class BaseConnector(ABC):
 
     @abstractmethod
     def connect(self, db_params: Dict[str, Any]):
-        """Connects to the database using the provided parameters."""
+        """
+        Establishes a connection to the database.
+
+        Args:
+            db_params: A dictionary of connection parameters, such as host,
+                         user, password, etc. The specific parameters will
+                         vary depending on the database type.
+        """
         pass
 
     @abstractmethod
     def get_tables(self) -> List[str]:
-        """Retrieves a list of table names from the database."""
+        """
+        Retrieves a list of all table names in the connected database.
+
+        Returns:
+            A list of strings, where each string is a table name.
+        """
         pass
 
     @abstractmethod
     def get_columns(self, table_name: str) -> List[Dict[str, str]]:
-        """Retrieves column information for a given table."""
+        """
+        Retrieves the column details for a specific table.
+
+        Args:
+            table_name: The name of the table to inspect.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a column
+            and contains keys like 'name' and 'type'.
+        """
         pass
 
     @abstractmethod
     def get_views(self) -> List[Dict[str, str]]:
-        """Retrives a List of views and their definitions."""
+        """
+        Retrieves a list of views and their definitions from the database.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a view
+            and contains keys like 'name' and 'definition'.
+        """
+        pass
 
     @abstractmethod
     def get_foreign_keys(self) -> List[Dict[str, str]]:
-        """Retrieves all foreign key relationships in the database."""
+        """
+        Retrieves all foreign key relationships in the database.
+
+        Returns:
+            A list of dictionaries, each representing a foreign key constraint.
+            The dictionary structure may vary but should include information
+            like the source and target tables/columns.
+        """
         pass
 
     @abstractmethod
     def close(self):
-        """Closes the database connection."""
+        """
+        Closes the active database connection and releases any resources.
+        """
         pass
 
 
 class BaseWriter(ABC):
+    """
+    Abstract base class for content writers.
+
+    This interface defines the contract for classes that write the generated
+    data catalog to a specific output format, such as a file or a
+    collaboration platform.
+    """
+
     @abstractmethod
     def write(self, catalog_data: Dict[str, Any], **kwargs):
+        """
+        Writes the provided catalog data to the target output.
+
+        Args:
+            catalog_data: A dictionary containing the structured data catalog
+                          to be written.
+            **kwargs: Additional keyword arguments that may be required by a
+                      specific writer implementation, such as 'filename' or
+                      'api_token'.
+        """
         pass

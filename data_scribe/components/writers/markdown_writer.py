@@ -1,3 +1,10 @@
+"""
+This module provides a writer for generating a data catalog in Markdown format.
+
+It implements the `BaseWriter` interface and is responsible for converting the
+structured catalog data into a human-readable Markdown file, including tables for
+columns, view definitions, and a Mermaid ERD chart.
+"""
 from typing import Dict, List, Any
 
 from data_scribe.utils.logger import get_logger
@@ -12,8 +19,22 @@ class MarkdownWriter(BaseWriter):
     Handles writing the generated database catalog to a Markdown file.
     """
 
-    def _generate_erd_mermaid(self, foreign_keys: List[Dict[str, str]]):
-        """Helper function to convert FK list to Mermaid ERD code."""
+    def _generate_erd_mermaid(self, foreign_keys: List[Dict[str, str]]) -> str:
+        """
+        Generates a Mermaid ERD (Entity Relationship Diagram) chart from foreign key data.
+
+        This helper function takes a list of foreign key relationships and constructs
+        a string containing Mermaid graph syntax to represent the database schema.
+
+        Args:
+            foreign_keys: A list of dictionaries, where each dictionary represents
+                          a foreign key relationship with keys like 'from_table',
+                          'to_table', 'from_column', and 'to_column'.
+
+        Returns:
+            A string containing the Mermaid ERD code block. If no foreign keys
+            are provided, it returns a simple message.
+        """
         if not foreign_keys:
             return "No foreign key relationships found."
 

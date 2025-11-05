@@ -1,3 +1,10 @@
+"""
+This module provides a writer for generating a dbt data catalog in Markdown format.
+
+It implements the `BaseWriter` interface and is responsible for converting the
+structured dbt catalog data into a human-readable Markdown file. This includes
+model descriptions, column details, and Mermaid lineage charts.
+"""
 from typing import Dict, List, Any
 
 from data_scribe.utils.logger import get_logger
