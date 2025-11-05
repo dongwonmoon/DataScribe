@@ -51,8 +51,12 @@ class SQLiteConnector(BaseConnector):
             self.cursor = self.connection.cursor()
             logger.info("Successfully connected to SQLite database.")
         except sqlite3.Error as e:
-            logger.error(f"Failed to connect to SQLite database: {e}", exc_info=True)
-            raise ConnectionError(f"Failed to connect to SQLite database: {e}") from e
+            logger.error(
+                f"Failed to connect to SQLite database: {e}", exc_info=True
+            )
+            raise ConnectionError(
+                f"Failed to connect to SQLite database: {e}"
+            ) from e
 
     def get_tables(self) -> List[str]:
         """Retrieves a list of all table names in the connected database.
@@ -70,7 +74,9 @@ class SQLiteConnector(BaseConnector):
 
         logger.info("Fetching table names from the database.")
         # Query the sqlite_master table to get the names of all tables
-        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        self.cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table';"
+        )
         # Extract the table names from the query result
         tables = [table[0] for table in self.cursor.fetchall()]
         logger.info(f"Found {len(tables)} tables.")
@@ -99,7 +105,9 @@ class SQLiteConnector(BaseConnector):
         self.cursor.execute(f"PRAGMA table_info('{table_name}');")
         # The result of PRAGMA table_info is a tuple: (cid, name, type, notnull, dflt_value, pk)
         # We extract just the name (index 1) and type (index 2).
-        columns = [{"name": col[1], "type": col[2]} for col in self.cursor.fetchall()]
+        columns = [
+            {"name": col[1], "type": col[2]} for col in self.cursor.fetchall()
+        ]
         logger.info(f"Found {len(columns)} columns in table {table_name}.")
         return columns
 
@@ -111,9 +119,12 @@ class SQLiteConnector(BaseConnector):
             )
 
         logger.info("Fetching views from the database.")
-        self.cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='view';")
+        self.cursor.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='view';"
+        )
         views = [
-            {"name": view[0], "definition": view[1]} for view in self.cursor.fetchall()
+            {"name": view[0], "definition": view[1]}
+            for view in self.cursor.fetchall()
         ]
         logger.info(f"Found {len(views)} views.")
         return views

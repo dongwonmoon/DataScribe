@@ -35,7 +35,9 @@ class CatalogGenerator:
         self.db_connector = db_connector
         self.llm_client = llm_client
 
-    def generate_catalog(self, db_profile_name: str) -> Dict[str, List[Dict[str, Any]]]:
+    def generate_catalog(
+        self, db_profile_name: str
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Generates a data catalog by fetching schema information from the database
         and enriching it with descriptions from an LLM.
@@ -75,7 +77,9 @@ class CatalogGenerator:
                 )
 
                 # Get the column description from the LLM client
-                description = self.llm_client.get_description(prompt, max_tokens=50)
+                description = self.llm_client.get_description(
+                    prompt, max_tokens=50
+                )
 
                 # Append the enriched column data to the list
                 enriched_columns.append(
@@ -106,7 +110,11 @@ class CatalogGenerator:
             summary = self.llm_client.get_description(prompt, max_tokens=200)
 
             enriched_views.append(
-                {"name": view_name, "definition": view_sql, "ai_summary": summary}
+                {
+                    "name": view_name,
+                    "definition": view_sql,
+                    "ai_summary": summary,
+                }
             )
         catalog_data["views"] = enriched_views
 

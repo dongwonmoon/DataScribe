@@ -30,7 +30,9 @@ class MarkdownWriter(BaseWriter):
 
         for fk in foreign_keys:
             label = f"{fk['from_column']} → {fk['to_column']}"
-            code.append(f'  {fk["from_table"]} --> {fk["to_table"]} : "{label}"')
+            code.append(
+                f'  {fk["from_table"]} --> {fk["to_table"]} : "{label}"'
+            )
 
         code.append("```")
         return "\n".join(code)
@@ -77,7 +79,9 @@ class MarkdownWriter(BaseWriter):
                             f"> {view.get('ai_summary', '(No summary available)')}\n\n"
                         )
                         f.write("**SQL Definition:**\n")
-                        f.write(f"```sql\n{view.get('definition', 'N/A')}\n```\n\n")
+                        f.write(
+                            f"```sql\n{view.get('definition', 'N/A')}\n```\n\n"
+                        )
 
                 # Iterate over each table in the catalog data
                 f.write("\n## 🗂️ Tables\n\n")

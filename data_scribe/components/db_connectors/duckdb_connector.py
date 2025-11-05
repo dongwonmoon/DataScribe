@@ -17,7 +17,9 @@ class DuckDBConnector(BaseConnector):
         try:
             self.file_path_pattern = db_params.get("path")
             if not self.file_path_pattern:
-                raise ValueError("Missing 'path' parameter for DuckDBConnector.")
+                raise ValueError(
+                    "Missing 'path' parameter for DuckDBConnector."
+                )
 
             self.connection = duckdb.connect(database=":memory:")
 
@@ -52,7 +54,9 @@ class DuckDBConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to fetch columns for table {table_name}: {e}")
-            raise RuntimeError(f"Failed to fetch columns for table {table_name}: {e}")
+            raise RuntimeError(
+                f"Failed to fetch columns for table {table_name}: {e}"
+            )
 
     def get_views(self) -> List[Dict[str, str]]:
         """Retrieves a list of all views (in-memory or attached)."""
