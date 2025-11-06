@@ -16,11 +16,10 @@ logger = get_logger(__name__)
 
 
 class MariaDBConnector(SqlBaseConnector):
-    """
-    Connector for MariaDB and MySQL databases.
+    """Connector for MariaDB and MySQL databases.
 
-    This class implements the BaseConnector interface and uses the `mysql-connector-python`
-    library to interact with the database.
+    This class extends SqlBaseConnector and implements the `connect` method
+    specific to MariaDB/MySQL databases using the `mysql-connector-python` library.
     """
 
     def __init__(self):

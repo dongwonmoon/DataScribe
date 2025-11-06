@@ -17,11 +17,12 @@ logger = get_logger(__name__)
 
 
 class SnowflakeConnector(SqlBaseConnector):
-    """
-    Connector for Snowflake data warehouses.
+    """Connector for Snowflake data warehouses.
 
-    This class implements the BaseConnector interface to provide connectivity
-    and schema extraction for Snowflake.
+    This class extends SqlBaseConnector and implements the `connect` method
+    specific to Snowflake databases using the `snowflake-connector-python` library.
+    It also overrides the `get_foreign_keys` method to use Snowflake's specific
+    `SHOW IMPORTED KEYS` command.
     """
 
     def __init__(self):
@@ -69,8 +70,7 @@ class SnowflakeConnector(SqlBaseConnector):
             A list of strings, where each string is a table name.
         """
         if not self.cursor:
-            raise RuntimeError("Must connect to the DB first.")
-        logger.info(f"Fetching tables from schema: {self.schema_name}")
+            raise ConnectorError("Must connect to the DB first.")
 
         query = f"""
             SELECT table_name
@@ -82,18 +82,8 @@ class SnowflakeConnector(SqlBaseConnector):
         logger.info(f"Found {len(tables)} tables.")
         return tables
 
-    def get_columns(self, table_name: str) -> List[Dict[str, str]]:
-        """
-        Retrieves column information (name and type) for a specific table.
-
-        Args:
-            table_name: The name of the table to inspect.
-
-        Returns:
-            A list of dictionaries, each representing a column with its name and type.
-        """
         if not self.cursor:
-            raise RuntimeError("Must connect to the DB first.")
+            raise ConnectorError("Must connect to the DB first.")
 
         query = f"""
             SELECT column_name, data_type
@@ -111,9 +101,8 @@ class SnowflakeConnector(SqlBaseConnector):
 
         Returns:
             A list of dictionaries, each representing a view with its name and definition.
-        """
         if not self.cursor:
-            raise RuntimeError("Must connect to the DB first.")
+            raise ConnectorError("Must connect to the DB first.")
 
         query = f"""
             SELECT table_name, view_definition
@@ -130,7 +119,7 @@ class SnowflakeConnector(SqlBaseConnector):
     def get_foreign_keys(self) -> List[Dict[str, str]]:
         """Retrieves all foreign key relationships in the schema."""
         if not self.cursor:
-            raise RuntimeError("Must connect to the DB first.")
+            raise ConnectorError("Must connect to the DB first.")
 
         logger.info("Fetching foreign key relationships from Snowflake...")
         self.cursor.execute(f'USE SCHEMA "{self.dbname}"."{self.schema_name}"')

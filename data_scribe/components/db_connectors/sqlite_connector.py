@@ -65,10 +65,10 @@ class SQLiteConnector(BaseConnector):
             A list of strings, where each string is a table name.
 
         Raises:
-            RuntimeError: If the database connection has not been established.
+            ConnectorError: If the database connection has not been established.
         """
         if not self.cursor:
-            raise RuntimeError(
+            raise ConnectorError(
                 "Database connection not established. Call connect() first."
             )
 
@@ -86,15 +86,11 @@ class SQLiteConnector(BaseConnector):
         Args:
             table_name: The name of the table to inspect.
 
-        Returns:
-            A list of dictionaries, where each dictionary represents a column
-            and contains its name and data type.
-
         Raises:
-            RuntimeError: If the database connection has not been established.
+            ConnectorError: If the database connection has not been established.
         """
         if not self.cursor:
-            raise RuntimeError(
+            raise ConnectorError(
                 "Database connection not established. Call connect() first."
             )
 
@@ -110,7 +106,7 @@ class SQLiteConnector(BaseConnector):
     def get_views(self) -> List[Dict[str, str]]:
         """Retrieves a list of all views and their SQL definitions."""
         if not self.cursor:
-            raise RuntimeError(
+            raise ConnectorError(
                 "Database connection not established. Call connect() first."
             )
 
@@ -125,7 +121,7 @@ class SQLiteConnector(BaseConnector):
     def get_foreign_keys(self) -> List[Dict[str, str]]:
         """Retrieves all foreign key relationships in the database."""
         if not self.cursor:
-            raise RuntimeError(
+            raise ConnectorError(
                 "Database connection not established. Call connect() first."
             )
 

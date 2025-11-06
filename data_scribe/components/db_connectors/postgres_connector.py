@@ -19,8 +19,8 @@ logger = get_logger(__name__)
 class PostgresConnector(SqlBaseConnector):
     """Connector for PostgreSQL databases.
 
-    This class implements the BaseConnector interface to provide
-    connectivity and schema extraction for PostgreSQL databases.
+    This class extends SqlBaseConnector and implements the `connect` method
+    specific to PostgreSQL databases using the `psycopg2` library.
     """
 
     def __init__(self):

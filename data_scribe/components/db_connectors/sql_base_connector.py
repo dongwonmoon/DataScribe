@@ -8,6 +8,7 @@ from abc import abstractmethod
 from typing import List, Dict, Any
 
 from data_scribe.core.interfaces import BaseConnector
+from data_scribe.core.exceptions import ConnectorError
 from data_scribe.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,10 +47,10 @@ class SqlBaseConnector(BaseConnector):
             A list of table names in the current schema.
 
         Raises:
-            RuntimeError: If the database connection is not established.
+            ConnectorError: If the database connection is not established.
         """
         if not self.cursor or not self.schema_name:
-            raise RuntimeError("Must connect to the DB first")
+            raise ConnectorError("Must connect to the DB first")
 
         logger.info(f"Fetching tables from schema: {self.schema_name}")
 
@@ -75,10 +76,10 @@ class SqlBaseConnector(BaseConnector):
             A list of dictionaries, each representing a column with its name and type.
 
         Raises:
-            RuntimeError: If the database connection is not established.
+            ConnectorError: If the database connection is not established.
         """
         if not self.cursor or not self.schema_name:
-            raise RuntimeError("Must connect to the DB first and set schema_name.")
+            raise ConnectorError("Must connect to the DB first and set schema_name.")
 
         logger.info(f"Fetching columns for table: {self.schema_name}.{table_name}")
 
@@ -101,10 +102,10 @@ class SqlBaseConnector(BaseConnector):
             A list of dictionaries, each representing a view with its name and definition.
 
         Raises:
-            RuntimeError: If the database connection is not established.
+            ConnectorError: If the database connection is not established.
         """
         if not self.cursor or not self.schema_name:
-            raise RuntimeError("Must connect to the DB first and set schema_name.")
+            raise ConnectorError("Must connect to the DB first and set schema_name.")
 
         logger.info(f"Fetching views from schema: {self.schema_name}")
 
@@ -129,10 +130,10 @@ class SqlBaseConnector(BaseConnector):
             A list of dictionaries, each representing a foreign key relationship.
 
         Raises:
-            RuntimeError: If the database connection is not established.
+            ConnectorError: If the database connection is not established.
         """
         if not self.cursor or not self.schema_name:
-            raise RuntimeError("Must connect to the DB first and set schema_name.")
+            raise ConnectorError("Must connect to the DB first and set schema_name.")
 
         logger.info(
             f"Fetching foreign key relationships for schema: {self.schema_name}"

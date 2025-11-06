@@ -70,7 +70,7 @@ class DuckDBConnector(BaseConnector):
             A list containing a single string: the file path pattern.
         """
         if not self.file_path_pattern:
-            raise RuntimeError("Not connected to a DuckDB database.")
+            raise ConnectorError("Not connected to a DuckDB database.")
 
         return [self.file_path_pattern]
 
@@ -87,7 +87,7 @@ class DuckDBConnector(BaseConnector):
             A list of dictionaries, each representing a column with its name and type.
         """
         if not self.connection:
-            raise RuntimeError("Not connected to a DuckDB database.")
+            raise ConnectorError("Not connected to a DuckDB database.")
 
         try:
             logger.info(f"Fetching columns for table: {table_name}")
@@ -103,12 +103,10 @@ class DuckDBConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to fetch columns for table {table_name}: {e}")
-            raise RuntimeError(f"Failed to fetch columns for table {table_name}: {e}")
+            raise ConnectorError(f"Failed to fetch columns for table {table_name}: {e}")
 
-    def get_views(self) -> List[Dict[str, str]]:
-        """Retrieves a list of all views (in-memory or attached)."""
         if not self.connection:
-            raise RuntimeError(
+            raise ConnectorError(
                 "Database connection not established. Call connect() first."
             )
 
@@ -132,7 +130,7 @@ class DuckDBConnector(BaseConnector):
             A list of dictionaries, each representing a foreign key relationship.
         """
         if not self.connection:
-            raise RuntimeError(
+            raise ConnectorError(
                 "Database connection not established. Call connect() first."
             )
 
