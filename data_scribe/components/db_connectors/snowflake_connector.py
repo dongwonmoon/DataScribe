@@ -82,6 +82,8 @@ class SnowflakeConnector(SqlBaseConnector):
         logger.info(f"Found {len(tables)} tables.")
         return tables
 
+    def get_columns(self, table_name: str) -> List[Dict[str, str]]:
+        """Retrieves column metadata for the specified table."""
         if not self.cursor:
             raise ConnectorError("Must connect to the DB first.")
 
@@ -101,6 +103,7 @@ class SnowflakeConnector(SqlBaseConnector):
 
         Returns:
             A list of dictionaries, each representing a view with its name and definition.
+        """
         if not self.cursor:
             raise ConnectorError("Must connect to the DB first.")
 
