@@ -27,7 +27,7 @@ This tool streamlines the data documentation process, making it easier for analy
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/DataScribe.git
+git clone https://github.com/dongwonmoon/DataScribe.git
 cd DataScribe
 ```
 
