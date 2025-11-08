@@ -24,7 +24,7 @@ Get your first AI-generated catalog in less than a minute.
 Clone the repo and install dependencies.
 
 ```bash
-git clone [https://github.com/dongwonmoon/DataScribe.git](https://github.com/dongwonmoon/DataScribe.git)
+git clone https://github.com/dongwonmoon/DataScribe.git
 cd DataScribe
 pip install -r requirements.txt
 ```
