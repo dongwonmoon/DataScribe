@@ -53,7 +53,7 @@ class DbtCatalogGenerator:
         # Initialize the manifest parser with the project directory
         parser = DbtManifestParser(dbt_project_dir)
         # Parse the manifest to get a list of models
-        models = parser.parse_models()
+        models = parser.models
 
         catalog_data = {}
 

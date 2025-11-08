@@ -55,7 +55,7 @@ llm_providers:
 
 output_profiles:
   default_markdown:
-    type: "db-markdown"
+    type: "markdown"
     output_filename: "db_catalog.md"
 
   default_json:

@@ -1,66 +1,44 @@
-name: "Data Scribe Unit Tests"
+name: "Data Scribe Tests"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
-    services:
-      ollama:
-        image: ollama/ollama
-        ports:
-          - 11434:11434
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-    - name: "Checkout Code"
-      uses: actions/checkout@v4
+      - name: "Checkout Code"
+        uses: actions/checkout@v4
 
-    - name: "Set up Python 3.11"
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: "Set up Python ${{ matrix.python-version }}"
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: "Install Dependencies"
-      run: |
-        pip install -e .["all"]
-        pip install pytest
-        pip install dbt-core
+      - name: "Install Dependencies"
+        run: |
+          python -m pip install --upgrade pip
+          # Install the project with all optional dependencies
+          pip install -e ".[all]"
+          # Install testing-specific dependencies
+          pip install pytest pytest-mock dbt-core dbt-duckdb ruamel.yaml
 
-    - name: "Install Ollama CLI on Host Runner"
-      run: |
-        curl -fsSL https://ollama.com/install.sh | sh
-
-    - name: "Setup Ollama (Pull Model)"
-      run: |
-        export OLLAMA_HOST="http://localhost:11434"
-        
-        n=0
-        until [ "$n" -ge 30 ]; do
-          if curl -s http://localhost:11434/ > /dev/null; then
-            echo "Ollama service is up!"
-            break
-          fi
-          n=$((n+1))
-          sleep 1
-        done
-
-        echo "Pulling llama3 model..."
-        ollama pull llama3
-        echo "Model pulled successfully."
-
-    - name: "Checkout jaffle_shop (for dbt test)"
-      uses: actions/checkout@v4
-      with:
-        repository: 'dbt-labs/jaffle_shop'
-        path: 'jaffle_shop'
-
-    - name: "Run Pytest"
-      run: |
-        pytest data_scribe/tests/
-      env: 
-        OLLAMA_HOST: "http://localhost:11434"
+      - name: "Run Pytest"
+        run: |
+          pytest data_scribe/tests/
+        env:
+          # Set dummy keys to allow client initialization tests to pass
+          # The actual API calls are mocked, so these don't need to be real
+          OPENAI_API_KEY: "ci_test_key"
+          GOOGLE_API_KEY: "ci_test_key"
+          SNOWFLAKE_PASSWORD: "ci_test_key"
+          MARIADB_PASSWORD: "ci_test_key"
+          CONFLUENCE_API_TOKEN: "ci_test_key"

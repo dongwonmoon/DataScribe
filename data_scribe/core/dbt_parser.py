@@ -9,6 +9,9 @@ This information is then used to generate a data catalog.
 import json
 import os
 from typing import List, Dict, Any
+from functools import cached_property
+
+from data_scribe.core.exceptions import DbtParseError
 from data_scribe.utils.logger import get_logger
 
 # Initialize a logger for this module
@@ -27,12 +30,13 @@ class DbtManifestParser:
         Args:
             dbt_project_dir: The root directory of the dbt project, where the 'target'
                              directory and 'manifest.json' are located.
+        
+        Raises:
+            DbtParseError: If the manifest.json file cannot be found or parsed.
         """
-        # Construct the full path to the manifest.json file
         self.manifest_path = os.path.join(
             dbt_project_dir, "target", "manifest.json"
         )
-        # Load the manifest data upon initialization
         self.manifest_data = self._load_manifest()
 
     def _load_manifest(self) -> Dict[str, Any]:
@@ -43,7 +47,7 @@ class DbtManifestParser:
             A dictionary containing the parsed JSON data from the manifest file.
 
         Raises:
-            FileNotFoundError: If the manifest file cannot be found at the expected path.
+            DbtParseError: If the manifest file cannot be found or is malformed.
         """
         logger.info(f"Loading manifest from: {self.manifest_path}")
         try:
@@ -51,65 +55,54 @@ class DbtManifestParser:
                 return json.load(f)
         except FileNotFoundError:
             logger.error(f"Manifest file not found at: {self.manifest_path}")
-            # Re-raise the exception to be handled by the caller
-            raise
+            raise DbtParseError(
+                f"manifest.json not found in '{os.path.dirname(self.manifest_path)}'. "
+                "Please run 'dbt compile' or 'dbt run' in your dbt project first."
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse manifest.json: {e}", exc_info=True)
+            raise DbtParseError(f"Failed to parse manifest.json: {e}") from e
 
-    def parse_models(self) -> List[Dict[str, Any]]:
+    @cached_property
+    def models(self) -> List[Dict[str, Any]]:
         """
         Parses all 'model' nodes in the manifest and extracts key information.
 
-        This method filters for nodes that are models and are not ephemeral,
-        as ephemeral models are not materialized in the database.
+        This method is a cached property, so it only parses the manifest once.
 
         Returns:
-            A list of dictionaries, where each dictionary represents a dbt model
-            and contains its name, raw SQL code, and a list of its columns.
-            Example:
-            [
-                {
-                    "name": "my_model",
-                    "raw_sql": "SELECT * FROM source_table",
-                    "columns": [
-                        {"name": "id", "type": "integer"},
-                        {"name": "name", "type": "text"}
-                    ]
-                }
-            ]
+            A list of dictionaries, where each dictionary represents a dbt model.
         """
-        models = []
-        # The manifest contains all nodes (models, sources, tests, etc.) in the 'nodes' dictionary
+        parsed_models = []
         nodes = self.manifest_data.get("nodes", {})
         logger.info(f"Parsing {len(nodes)} nodes from manifest...")
 
-        for node in nodes.values():
-            # We are interested only in nodes that are models and are materialized as tables or views.
-            if (
-                node["resource_type"] == "model"
-                and node["config"].get("materialized") != "ephemeral"
-            ):
-                model_name = node["name"]
-                # Get the raw SQL code for the model
-                raw_code = node.get("raw_code", "-- SQL code not available --")
-
-                # The columns are stored in a dictionary within the node
-                column_nodes = node.get("columns", {})
+        for node_name, node_data in nodes.items():
+            if node_data.get("resource_type") == "model":
+                # The description can be in the 'description' field or under 'config'
+                description = node_data.get("description") or node_data.get("config", {}).get("description", "")
 
                 parsed_columns = []
-                for col_name, col_info in column_nodes.items():
+                for col_name, col_data in node_data.get("columns", {}).items():
                     parsed_columns.append(
                         {
                             "name": col_name,
-                            "type": col_info.get("data_type", "N/A"),
+                            "description": col_data.get("description", ""),
+                            "type": col_data.get("data_type", "N/A"),
                         }
                     )
 
-                models.append(
+                parsed_models.append(
                     {
-                        "name": model_name,
-                        "raw_sql": raw_code,
+                        "name": node_data.get("name"),
+                        "unique_id": node_name,
+                        "description": description,
+                        "raw_sql": node_data.get("raw_code") or node_data.get("raw_sql", "-- SQL code not available --"),
                         "columns": parsed_columns,
+                        "path": node_data.get("path"),
+                        "original_file_path": node_data.get("original_file_path"),
                     }
                 )
 
-        logger.info(f"Found and parsed {len(models)} models.")
-        return models
+        logger.info(f"Found and parsed {len(parsed_models)} models.")
+        return parsed_models

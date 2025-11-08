@@ -28,3 +28,8 @@ class WriterError(DataScribeError):
 class ConfigError(DataScribeError):
     """Raised for errors related to application configuration."""
     pass
+
+
+class DbtParseError(DataScribeError):
+    """Raised for errors related to parsing dbt artifacts."""
+    pass

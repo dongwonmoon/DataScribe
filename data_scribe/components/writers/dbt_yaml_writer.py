@@ -109,8 +109,8 @@ class DbtYamlWriter:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = self.yaml.load(f)
         except YAMLError as e:
-            logger.error(f"Failed to load YAML file {file_path}: {e}")
-            return False
+            logger.error(f"Failed to parse YAML file {file_path}: {e}")
+            raise WriterError(f"Failed to parse YAML file: {file_path}") from e
 
         if not data:
             logger.info(f"Skipping empty YAML file: {file_path}")
@@ -130,6 +130,14 @@ class DbtYamlWriter:
                     logger.info(f" -> Found model '{node_name}' in YAML.")
                     ai_model_data = catalog_data[node_name]
 
+                    # Update model-level description
+                    ai_model_desc = ai_model_data.get("model_description")
+                    if ai_model_desc and not node_config.get("description"):
+                        logger.info(f"- Updating model '{node_name}' with new description.")
+                        node_config["description"] = ai_model_desc
+                        file_updated = True
+
+                    # Update column-level descriptions
                     if "columns" in node_config:
                         for column_config in node_config["columns"]:
                             column_name = column_config.get("name")

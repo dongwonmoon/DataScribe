@@ -99,6 +99,19 @@ llm_providers:
     host: "http://localhost:11434"
 ```
 
+---
+**Note on Secrets**: For sensitive values like passwords and API tokens, you can use environment variables. Data Scribe will automatically expand any value with the format `${VAR_NAME}`.
+
+**Example:**
+```yaml
+  prod_mariadb:
+    type: "mariadb"
+    host: "prod.mariadb.com"
+    user: "admin"
+    password: "${MARIADB_PASSWORD}" # Loaded from environment variable
+    dbname: "production_db"
+```
+
 ## Usage
 
 Data Scribe offers two main commands: `db` for databases and `dbt` for dbt projects.

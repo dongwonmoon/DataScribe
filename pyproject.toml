@@ -40,12 +40,26 @@ confluence = ["atlassian-python-api"]
 snowflake = ["snowflake-connector-python"]
 bigquery = ["google-cloud-bigquery", "google-auth"]
 
+test = [
+    "pytest",
+    "pytest-mock",
+    "dbt-core",
+    "dbt-duckdb",
+]
+
 all = [
     "psycopg2-binary",
     "mysql-connector-python",
     "google-generativeai",
     "ollama",
-    "atlassian-python-api"
+    "atlassian-python-api",
+    "snowflake-connector-python",
+    "google-cloud-bigquery",
+    "google-auth",
+    "pytest",
+    "pytest-mock",
+    "dbt-core",
+    "dbt-duckdb",
 ]
 
 [tool.setuptools.packages.find]

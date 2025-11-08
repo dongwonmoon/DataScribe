@@ -1,172 +1,114 @@
 """
 This module provides a concrete implementation of the BaseConnector for DuckDB.
 
-It handles connecting to an in-memory DuckDB instance and reading data from
-local or remote files (e.g., Parquet, CSV) specified by a path pattern.
+It handles connecting to a DuckDB database file or an in-memory instance
+for reading data from other file types (e.g., Parquet, CSV).
 """
 
 import duckdb
 from typing import List, Dict, Any
 
-from data_scribe.core.interfaces import BaseConnector
+from .sql_base_connector import SqlBaseConnector
 from data_scribe.core.exceptions import ConnectorError
 from data_scribe.utils.logger import get_logger
 
-# Initialize a logger for this module
 logger = get_logger(__name__)
 
 
-class DuckDBConnector(BaseConnector):
+class DuckDBConnector(SqlBaseConnector):
     """
     Connector for reading data using DuckDB.
 
-    This connector is designed to use DuckDB's ability to directly query
-    file-based datasets (like Parquet or CSV files, including from S3)
-    without a persistent database server.
+    This connector can connect to a persistent DuckDB database file or use
+    an in-memory database to query other file formats like Parquet and CSV.
     """
 
     def __init__(self):
         """Initializes the DuckDBConnector."""
-        self.connection: duckdb.DuckDBPyConnection | None = None
+        super().__init__()
         self.file_path_pattern: str | None = None
 
     def connect(self, db_params: Dict[str, Any]):
         """
-        Initializes an in-memory DuckDB connection and loads necessary extensions.
+        Initializes a DuckDB connection.
+
+        If the path ends with '.db' or '.duckdb', it connects to the file.
+        Otherwise, it uses an in-memory database, assuming the path is for
+        querying files directly (e.g., CSV, Parquet).
 
         Args:
-            db_params: A dictionary containing the 'path' to the file(s) to be read.
-                       Example: {"path": "./data/*.parquet"} or {"path": "s3://bucket/data.csv"}
-
-        Raises:
-            ValueError: If the 'path' parameter is missing.
-            ConnectionError: If the connection to DuckDB fails.
+            db_params: A dictionary containing the 'path' to the database file
+                       or file pattern to be read.
         """
         try:
-            self.file_path_pattern = db_params.get("path")
-            if not self.file_path_pattern:
+            path = db_params.get("path")
+            if not path:
                 raise ValueError("Missing 'path' parameter for DuckDBConnector.")
 
-            # Connect to an in-memory DuckDB database
-            self.connection = duckdb.connect(database=":memory:")
+            self.file_path_pattern = path
+            
+            # For file-based queries (not a persistent .db file), we still use
+            # an in-memory DB and query via `read_auto`.
+            db_file = path if path.endswith((".db", ".duckdb")) else ":memory:"
+            
+            # When querying files directly, read_only should be False to allow
+            # extensions like httpfs to be installed if needed.
+            read_only = db_file != ":memory:"
 
-            # If the path points to S3, install and load the httpfs extension
+            self.connection = duckdb.connect(database=db_file, read_only=read_only)
+
             if self.file_path_pattern.startswith("s3://"):
                 self.connection.execute("INSTALL httpfs; LOAD httpfs;")
 
+            self.cursor = self.connection.cursor()
             logger.info("Successfully connected to DuckDB.")
         except Exception as e:
-            logger.error(f"Failed to connect to DuckDB: {e}")
-            raise ConnectorError(f"Failed to connect to DuckDB: {e}")
+            logger.error(f"Failed to connect to DuckDB: {e}", exc_info=True)
+            raise ConnectorError(f"Failed to connect to DuckDB: {e}") from e
 
     def get_tables(self) -> List[str]:
         """
-        Returns the file path pattern as the "table" to be analyzed.
-
-        Since DuckDB is used to query files directly, the concept of a "table"
-        in this context is the file path pattern itself.
-
-        Returns:
-            A list containing a single string: the file path pattern.
+        Returns a list of tables and views from the DuckDB database.
+        If the connection is for a file pattern, it returns the pattern itself.
         """
-        if not self.file_path_pattern:
+        if not self.cursor:
             raise ConnectorError("Not connected to a DuckDB database.")
 
-        return [self.file_path_pattern]
+        # If we are in file-query mode, the "table" is the file path pattern
+        if not self.file_path_pattern.endswith((".db", ".duckdb")):
+             return [self.file_path_pattern]
+
+        logger.info("Fetching tables and views from DuckDB.")
+        self.cursor.execute("SHOW ALL TABLES;")
+        tables = [row[0] for row in self.cursor.fetchall()]
+        logger.info(f"Found {len(tables)} tables/views.")
+        return tables
 
     def get_columns(self, table_name: str) -> List[Dict[str, str]]:
         """
-        Describes the columns of the dataset specified by the file path pattern.
-
-        It uses DuckDB's `DESCRIBE` and `read_auto` to infer the schema from the file(s).
-
-        Args:
-            table_name: The file path pattern to analyze (e.g., "./data/*.parquet").
-
-        Returns:
-            A list of dictionaries, each representing a column with its name and type.
+        Describes the columns of a table, view, or file-based dataset.
         """
-        if not self.connection:
+        if not self.cursor:
             raise ConnectorError("Not connected to a DuckDB database.")
 
         try:
-            logger.info(f"Fetching columns for table: {table_name}")
+            logger.info(f"Fetching columns for: {table_name}")
 
-            # Use DESCRIBE on a read_auto query to get the schema
-            query = f"DESCRIBE SELECT * FROM read_auto('{table_name}');"
-            result = self.connection.execute(query).fetchall()
-
+            # If the table_name is a file path, use read_auto for schema inference.
+            if not table_name.endswith((".db", ".duckdb")) and (
+                "." in table_name or "/" in table_name
+            ):
+                query = f"DESCRIBE SELECT * FROM read_auto('{table_name}');"
+            else: # Otherwise, assume it's a standard table/view name
+                query = f"DESCRIBE \"{table_name}\";"
+            
+            self.cursor.execute(query)
+            result = self.cursor.fetchall()
             columns = [{"name": col[0], "type": col[1]} for col in result]
 
-            logger.info(f"Fetched columns for table: {table_name}")
+            logger.info(f"Fetched {len(columns)} columns for: {table_name}")
             return columns
 
         except Exception as e:
-            logger.error(f"Failed to fetch columns for table {table_name}: {e}")
-            raise ConnectorError(f"Failed to fetch columns for table {table_name}: {e}")
-
-    def get_views(self) -> List[Dict[str, str]]:
-        """Retrieves DuckDB views and their SQL definitions."""
-        if not self.connection:
-            raise ConnectorError(
-                "Database connection not established. Call connect() first."
-            )
-
-        try:
-            logger.info("Fetching views from DuckDB.")
-            query = "SELECT view_name, sql FROM duckdb_views();"
-            result = self.connection.execute(query).fetchall()
-            views = [{"name": row[0], "definition": row[1]} for row in result]
-            logger.info(f"Found {len(views)} views.")
-            return views
-        except Exception as e:
-            logger.error(f"Failed to fetch views from DuckDB: {e}")
-            raise ConnectorError(f"Failed to fetch views from DuckDB: {e}")
-
-    def get_foreign_keys(self) -> List[Dict[str, str]]:
-        """
-        Retrieves all foreign key relationships from the attached database.
-
-        Note: This is often not applicable when querying transient file-based data,
-        but is included for completeness.
-
-        Returns:
-            A list of dictionaries, each representing a foreign key relationship.
-        """
-        if not self.connection:
-            raise ConnectorError(
-                "Database connection not established. Call connect() first."
-            )
-
-        logger.info("Fetching foreign key relationships from DuckDB...")
-        foreign_keys = []
-        try:
-            # This pragma works for attached databases but may not for file scans
-            self.connection.execute("SELECT * FROM pragma_foreign_keys();")
-            fk_results = self.connection.fetchall()
-
-            fk_df = self.connection.fetchdf()
-
-            for _, fk in fk_df.iterrows():
-                foreign_keys.append(
-                    {
-                        "from_table": fk["fk_table"],
-                        "from_column": fk["fk_column"],
-                        "to_table": fk["pk_table"],
-                        "to_column": fk["pk_column"],
-                    }
-                )
-        except Exception as e:
-            logger.warning(
-                f"FK lookup fails in DuckDB (normal when file-based scanned): {e}"
-            )
-
-        logger.info(f"Found {len(foreign_keys)} foreign key relationships.")
-        return foreign_keys
-
-    def close(self):
-        """Closes the in-memory DuckDB connection."""
-        if self.connection:
-            self.connection.close()
-            self.connection = None
-            logger.info("DuckDB connection closed.")
+            logger.error(f"Failed to fetch columns for {table_name}: {e}", exc_info=True)
+            raise ConnectorError(f"Failed to fetch columns for {table_name}: {e}") from e
