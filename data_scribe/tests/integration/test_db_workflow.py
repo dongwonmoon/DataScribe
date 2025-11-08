@@ -50,8 +50,12 @@ def test_db_workflow_end_to_end(
 
     # 3. Check for table and column names
     assert "### 📄 Table: `users`" in content
-    assert "| `id` | `INTEGER` | This is an AI-generated description. |" in content
-    assert "| `email` | `TEXT` | This is an AI-generated description. |" in content
+    assert (
+        "| `id` | `INTEGER` | This is an AI-generated description. |" in content
+    )
+    assert (
+        "| `email` | `TEXT` | This is an AI-generated description. |" in content
+    )
 
     # 4. Check for view information
     assert "### 📄 View: `user_orders`" in content
@@ -108,7 +112,9 @@ def test_db_workflow_end_to_end_with_profiling(
 
     # 3. Check for table and column names
     assert "### 📄 Table: `users`" in content
-    assert "| `id` | `INTEGER` | This is an AI-generated description. |" in content
+    assert (
+        "| `id` | `INTEGER` | This is an AI-generated description. |" in content
+    )
 
     # ... (existing checks for view and ERD) ...
     assert "### 📄 View: `user_orders`" in content

@@ -51,7 +51,9 @@ class CatalogGenerator:
         ]
         return "\n".join(context_lines)
 
-    def generate_catalog(self, db_profile_name: str) -> Dict[str, List[Dict[str, Any]]]:
+    def generate_catalog(
+        self, db_profile_name: str
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Generates a data catalog by fetching schema information from the database
         and enriching it with descriptions from an LLM.
@@ -135,7 +137,9 @@ class CatalogGenerator:
                 )
 
                 # Get the column description from the LLM client.
-                description = self.llm_client.get_description(prompt, max_tokens=50)
+                description = self.llm_client.get_description(
+                    prompt, max_tokens=50
+                )
 
                 enriched_columns.append(
                     {
