@@ -8,7 +8,11 @@ fetching schema information, and using an LLM to generate descriptions for each 
 from typing import List, Dict, Any
 
 from data_scribe.core.interfaces import BaseConnector, BaseLLMClient
-from data_scribe.prompts import COLUMN_DESCRIPTION_PROMPT, VIEW_SUMMARY_PROMPT
+from data_scribe.prompts import (
+    COLUMN_DESCRIPTION_PROMPT,
+    VIEW_SUMMARY_PROMPT,
+    TABLE_SUMMARY_PROMPT,
+)
 from data_scribe.utils.logger import get_logger
 
 # Initialize a logger for this module
@@ -47,9 +51,7 @@ class CatalogGenerator:
         ]
         return "\n".join(context_lines)
 
-    def generate_catalog(
-        self, db_profile_name: str
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    def generate_catalog(self, db_profile_name: str) -> Dict[str, List[Dict[str, Any]]]:
         """
         Generates a data catalog by fetching schema information from the database
         and enriching it with descriptions from an LLM.
@@ -98,6 +100,16 @@ class CatalogGenerator:
             columns = self.db_connector.get_columns(table_name)
             enriched_columns = []
 
+            logger.info(f"  - Generating summary for table: {table_name}")
+            column_list_str = ", ".join([c["name"] for c in columns])
+
+            table_prompt = TABLE_SUMMARY_PROMPT.format(
+                table_name=table_name, column_list_str=column_list_str
+            )
+            table_summary = self.llm_client.get_description(
+                table_prompt, max_tokens=200
+            )
+
             # For each column, profile it and generate a description using the LLM
             for column in columns:
                 col_name = column["name"]
@@ -123,9 +135,7 @@ class CatalogGenerator:
                 )
 
                 # Get the column description from the LLM client.
-                description = self.llm_client.get_description(
-                    prompt, max_tokens=50
-                )
+                description = self.llm_client.get_description(prompt, max_tokens=50)
 
                 enriched_columns.append(
                     {
@@ -136,7 +146,11 @@ class CatalogGenerator:
                     }
                 )
             catalog_data["tables"].append(
-                {"name": table_name, "columns": enriched_columns}
+                {
+                    "name": table_name,
+                    "ai_summary": table_summary,
+                    "columns": enriched_columns,
+                }
             )
             logger.info(f"Finished processing table: {table_name}")
 

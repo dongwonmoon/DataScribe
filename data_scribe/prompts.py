@@ -109,6 +109,17 @@ Summarize in 1-2 sentences what business-level information this view provides.
 ```
 """
 
+TABLE_SUMMARY_PROMPT = """
+You are a professional data analyst.
+Below is a table named '{table_name}' and its columns: {column_list_str}.
+Summarize in 1-2 sentences what business-level information this table likely holds.
+
+Example (for table 'orders' with columns 'id, user_id, product_id, order_date'):
+"Stores order information, linking users to the products they purchased and when."
+
+Summary:
+"""
+
 # Prompt template for generating a complete YAML metadata block for a dbt column.
 # This prompt asks the LLM to act as a senior data governance expert and generate
 # a YAML snippet containing a description, PII metadata, tags, and appropriate tests.
