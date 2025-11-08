@@ -6,7 +6,7 @@ Data Scribe is a CLI tool that scans your databases and dbt projects, uses AI to
 
 ---
 
-## ✨ The Magic: See it in Action
+## ✨ See it in Action
 
 Stop manually updating YAML files or writing Markdown tables. Let `data-scribe` do the work in seconds.
 
@@ -24,7 +24,7 @@ Get your first AI-generated catalog in less than a minute.
 Clone the repo and install dependencies.
 
 ```bash
-git clone [https://github.com/dongwonmoon/DataScribe.git](https://github.com/dongwonmoon/DataScribe.git)
+git clone https://github.com/dongwonmoon/DataScribe.git
 cd DataScribe
 pip install -r requirements.txt
 ```
