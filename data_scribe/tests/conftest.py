@@ -21,17 +21,11 @@ def mock_llm_client(mocker):
     `get_description` method is set to return a predictable, fixed string.
     """
     mock_client = MagicMock()
-    mock_client.get_description.return_value = (
-        "This is an AI-generated description."
-    )
+    mock_client.get_description.return_value = "This is an AI-generated description."
 
     # Patch the init_llm function where it's used in the workflows
-    mocker.patch(
-        "data_scribe.core.db_workflow.init_llm", return_value=mock_client
-    )
-    mocker.patch(
-        "data_scribe.core.dbt_workflow.init_llm", return_value=mock_client
-    )
+    mocker.patch("data_scribe.core.db_workflow.init_llm", return_value=mock_client)
+    mocker.patch("data_scribe.core.dbt_workflow.init_llm", return_value=mock_client)
 
     return mock_client
 
@@ -86,25 +80,17 @@ def test_config(tmp_path):
 @pytest.fixture
 def sqlite_db(tmp_path):
     """
-    Sets up a temporary SQLite database with sample data for integration tests.
-
-    This fixture creates a new SQLite database file in a temporary directory for each
-    test function. It populates the database with tables, columns, views, and foreign keys
-    to enable realistic integration testing of the database scanning workflow.
-
-    The database file is automatically removed after the test completes.
-
-    Returns:
-        The path to the temporary SQLite database file.
+    Sets up a temporary, EMPTY SQLite database with schema for integration tests.
+    ...
+    (No changes to this existing fixture)
+    ...
     """
     db_path = tmp_path / "test_database.db"
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     # Create tables
-    cursor.execute(
-        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"
-    )
+    cursor.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
     cursor.execute(
         "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)"
     )
@@ -124,6 +110,41 @@ def sqlite_db(tmp_path):
         JOIN products p ON o.product_id = p.id
         """
     )
+
+    conn.commit()
+    conn.close()
+
+    return str(db_path)
+
+
+@pytest.fixture
+def sqlite_db_with_data(tmp_path):
+    """
+    Sets up a temporary SQLite database WITH SAMPLE DATA for profiling tests.
+    This provides predictable stats for nulls, uniqueness, and cardinality.
+    """
+    db_path = tmp_path / "test_data_database.db"
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Create table
+    cursor.execute(
+        "CREATE TABLE profile_test (id INTEGER PRIMARY KEY, "
+        "unique_col TEXT, "
+        "nullable_col TEXT, "
+        "category_col TEXT)"
+    )
+
+    # Insert predictable data
+    # Total 5 rows
+    data = [
+        (1, "A", "foo", "cat_1"),
+        (2, "B", "bar", "cat_1"),
+        (3, "C", "foo", "cat_2"),
+        (4, "D", None, "cat_2"),
+        (5, "E", None, "cat_2"),
+    ]
+    cursor.executemany("INSERT INTO profile_test VALUES (?, ?, ?, ?)", data)
 
     conn.commit()
     conn.close()

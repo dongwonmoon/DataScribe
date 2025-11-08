@@ -71,6 +71,92 @@ def test_sqlite_connector_integration(sqlite_db):
     assert connector.connection is None
 
 
+def test_sqlite_connector_profiling(sqlite_db_with_data):
+    """
+    Tests the get_column_profile method on SQLiteConnector with predictable data.
+    """
+    connector = SQLiteConnector()
+    connector.connect({"path": sqlite_db_with_data})
+
+    # Test 1: 'id' column (PK)
+    # 5 total, 0 null, 5 distinct -> unique
+    stats_id = connector.get_column_profile("profile_test", "id")
+    assert stats_id == {
+        "total_count": 5,
+        "null_ratio": 0.0,
+        "distinct_count": 5,
+        "is_unique": True,
+    }
+
+    # Test 2: 'nullable_col'
+    # 5 total, 2 null, 2 distinct -> not unique
+    stats_nullable = connector.get_column_profile("profile_test", "nullable_col")
+    assert stats_nullable == {
+        "total_count": 5,
+        "null_ratio": 0.4,  # 2 / 5
+        "distinct_count": 2,
+        "is_unique": False,
+    }
+
+    # Test 3: 'category_col' (low cardinality)
+    # 5 total, 0 null, 2 distinct -> not unique
+    stats_category = connector.get_column_profile("profile_test", "category_col")
+    assert stats_category == {
+        "total_count": 5,
+        "null_ratio": 0.0,
+        "distinct_count": 2,
+        "is_unique": False,
+    }
+
+    connector.close()
+
+
+# --- SqlBaseConnector Tests (mocking) ---
+
+
+def test_sql_base_connector_profiling_logic():
+    """
+    Tests the profiling logic in SqlBaseConnector using a mock cursor.
+    """
+    connector = SqlBaseConnector()
+    # Mock the cursor to avoid needing a real connection
+    connector.cursor = MagicMock()
+    connector.schema_name = "public"  # Set required property
+
+    # Mock the return value of fetchone(): (total_count, null_count, distinct_count)
+    connector.cursor.fetchone.return_value = (100, 10, 90)  # 10% nulls, not unique
+
+    stats = connector.get_column_profile("test_table", "test_column")
+
+    # Verify the correct SQL was executed
+    expected_query = f"""
+        SELECT
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN "test_column" IS NULL THEN 1 ELSE 0 END) AS null_count,
+            COUNT(DISTINCT "test_column") AS distinct_count
+        FROM "public"."test_table"
+        """
+    connector.cursor.execute.assert_called_once_with(expected_query)
+
+    # Verify the stats were calculated correctly
+    assert stats == {
+        "total_count": 100,
+        "null_ratio": 0.1,  # 10 / 100
+        "distinct_count": 90,
+        "is_unique": False,  # 90 != 100
+    }
+
+    # Test 'is_unique' logic (distinct = total AND nulls = 0)
+    connector.cursor.fetchone.return_value = (100, 0, 100)
+    stats_unique = connector.get_column_profile("test_table", "unique_col")
+    assert stats_unique["is_unique"] is True
+
+    # Test 'is_unique' logic (distinct = total BUT has nulls)
+    connector.cursor.fetchone.return_value = (100, 1, 100)
+    stats_unique_null = connector.get_column_profile("test_table", "unique_col_null")
+    assert stats_unique_null["is_unique"] is False  # Fails because of null
+
+
 # --- PostgresConnector Tests (mocking psycopg2) ---
 
 
@@ -97,9 +183,7 @@ def test_postgres_connector_connect(mock_psycopg2):
     assert connector.schema_name == "public"
 
 
-@patch(
-    "data_scribe.components.db_connectors.postgres_connector.psycopg2.connect"
-)
+@patch("data_scribe.components.db_connectors.postgres_connector.psycopg2.connect")
 def test_postgres_connector_connect_fails(mock_connect):
     """Tests that PostgresConnector raises ConnectorError on connection failure."""
     mock_connect.side_effect = psycopg2.Error("Connection failed")
@@ -140,9 +224,7 @@ def test_duckdb_connector_connect_to_db_file(mock_duckdb):
     connector = DuckDBConnector()
     db_params = {"path": "test.db"}
     connector.connect(db_params)
-    mock_duckdb.connect.assert_called_once_with(
-        database="test.db", read_only=True
-    )
+    mock_duckdb.connect.assert_called_once_with(database="test.db", read_only=True)
 
 
 @patch("data_scribe.components.db_connectors.duckdb_connector.duckdb")
@@ -151,9 +233,7 @@ def test_duckdb_connector_connect_to_other_file(mock_duckdb):
     connector = DuckDBConnector()
     db_params = {"path": "data.parquet"}
     connector.connect(db_params)
-    mock_duckdb.connect.assert_called_once_with(
-        database=":memory:", read_only=False
-    )
+    mock_duckdb.connect.assert_called_once_with(database=":memory:", read_only=False)
 
 
 @patch("data_scribe.components.db_connectors.duckdb_connector.duckdb")
@@ -183,9 +263,7 @@ def test_duckdb_get_tables_from_pattern(mock_duckdb):
 # --- SnowflakeConnector Tests (mocking snowflake.connector) ---
 
 
-@patch(
-    "data_scribe.components.db_connectors.snowflake_connector.snowflake.connector"
-)
+@patch("data_scribe.components.db_connectors.snowflake_connector.snowflake.connector")
 def test_snowflake_connector_connect(mock_snowflake_connector):
     """Tests that SnowflakeConnector calls snowflake.connector.connect correctly."""
     connector = SnowflakeConnector()
