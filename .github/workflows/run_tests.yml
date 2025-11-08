@@ -27,7 +27,7 @@ jobs:
 
     - name: "Install Dependencies"
       run: |
-        pip install -e .
+        pip install -e .["all"]
         pip install pytest
         pip install dbt-core
 
