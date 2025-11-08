@@ -4,11 +4,31 @@ models:
   - name: customers
     columns:
       - name: customer_id
-        description: ""
+        description: "Constant value for all rows, representing a unique customer
+          identifier."
         tests:
           - unique
           - not_null
-      - name: customer_name        
-      - name: email        
+        meta:
+          pii: false
+        tags:
+          - user_info
+      - name: customer_name
+        description: The customer's full name.
+        meta:
+          pii: false
+        tags:
+          - user_info
+        tests:
+          - not_null
+      - name: email
         tests:
           - unique
+        description: The user's unique email address for login and contact.
+        meta:
+          pii: true
+        tags:
+          - user_info
+          - pii
+    description: This dbt model generates a single record representing customer 
+      information, with attributes like customer ID, name, and email address.
