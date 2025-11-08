@@ -59,10 +59,7 @@ class DbtYamlWriter:
                 continue
             for root, _, files in os.walk(path):
                 for file in files:
-                    if (
-                        file.endswith((".yml", ".yaml"))
-                        and "dbt_project" not in file
-                    ):
+                    if file.endswith((".yml", ".yaml")) and "dbt_project" not in file:
                         schema_files.append(os.path.join(root, file))
 
         logger.info(f"Found schema files to check: {schema_files}")
@@ -91,15 +88,11 @@ class DbtYamlWriter:
 
         for file_path in schema_files:
             try:
-                file_needs_update = self._update_single_file(
-                    file_path, catalog_data
-                )
+                file_needs_update = self._update_single_file(file_path, catalog_data)
                 if file_needs_update:
                     total_updates_needed = True
             except Exception as e:
-                logger.error(
-                    f"Error processing {file_path}: {e}", exc_info=True
-                )
+                logger.error(f"Error processing {file_path}: {e}", exc_info=True)
                 raise WriterError(f"Error processing {file_path}: {e}") from e
 
         return total_updates_needed
@@ -112,9 +105,7 @@ class DbtYamlWriter:
         Returns the value to save (str) or None to skip.
         """
         target = f"'{key}' on '{node_log_name}'"
-        prompt_title = typer.style(
-            f"Suggestion for {target}:", fg=typer.colors.CYAN
-        )
+        prompt_title = typer.style(f"Suggestion for {target}:", fg=typer.colors.CYAN)
 
         # Display the AI suggestion clearly
         typer.echo(prompt_title)
@@ -156,9 +147,7 @@ class DbtYamlWriter:
             return True  # A change is needed
 
         elif self.mode == "interactive":
-            final_value = self._prompt_user_for_change(
-                node_log_name, key, ai_value
-            )
+            final_value = self._prompt_user_for_change(node_log_name, key, ai_value)
             if final_value:
                 config_node[key] = final_value
                 return True  # A change was made
@@ -169,9 +158,7 @@ class DbtYamlWriter:
             config_node[key] = ai_value
             return True  # A change was made
 
-    def _update_single_file(
-        self, file_path: str, catalog_data: Dict[str, Any]
-    ) -> bool:
+    def _update_single_file(self, file_path: str, catalog_data: Dict[str, Any]) -> bool:
         """Updates a single schema.yml file with AI-generated descriptions.
 
         This method reads a schema.yml file, finds the models defined in it,
@@ -204,9 +191,7 @@ class DbtYamlWriter:
 
                 node_name = node_config.get("name")
                 if node_type == "models" and node_name in catalog_data:
-                    logger.info(
-                        f" -> Checking model: '{node_name}' in {file_path}"
-                    )
+                    logger.info(f" -> Checking model: '{node_name}' in {file_path}")
                     ai_model_data = catalog_data[node_name]
 
                     # --- 1. Update model-level description ---
@@ -237,7 +222,9 @@ class DbtYamlWriter:
                                 ai_data_dict = ai_column.get("ai_generated", {})
                                 for key, ai_value in ai_data_dict.items():
                                     if not column_config.get(key):
-                                        col_log_name = f"column '{node_name}.{column_name}'"
+                                        col_log_name = (
+                                            f"column '{node_name}.{column_name}'"
+                                        )
                                         if self._process_update(
                                             config_node=column_config,
                                             key=key,
@@ -246,7 +233,7 @@ class DbtYamlWriter:
                                         ):
                                             file_updated = True
 
-        if self.check_mode:
+        if self.mode == "check":
             if file_updated:
                 logger.warning(f"CI CHECK: '{file_path}' is outdated.")
             else:
@@ -257,9 +244,7 @@ class DbtYamlWriter:
             try:
                 with open(file_path, "w", encoding="utf-8") as f:
                     self.yaml.dump(data, f)
-                logger.info(
-                    f"Successfully updated '{file_path}' with AI descriptions."
-                )
+                logger.info(f"Successfully updated '{file_path}' with AI descriptions.")
             except IOError as e:
                 logger.error(f"Failed to write updates to '{file_path}': {e}")
         else:
