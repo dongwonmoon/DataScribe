@@ -80,13 +80,9 @@ class SqlBaseConnector(BaseConnector):
             ConnectorError: If the database connection is not established.
         """
         if not self.cursor or not self.schema_name:
-            raise ConnectorError(
-                "Must connect to the DB first and set schema_name."
-            )
+            raise ConnectorError("Must connect to the DB first and set schema_name.")
 
-        logger.info(
-            f"Fetching columns for table: {self.schema_name}.{table_name}"
-        )
+        logger.info(f"Fetching columns for table: {self.schema_name}.{table_name}")
 
         query = """
             SELECT column_name, data_type
@@ -95,9 +91,7 @@ class SqlBaseConnector(BaseConnector):
         """
 
         self.cursor.execute(query, (self.schema_name, table_name))
-        columns = [
-            {"name": col[0], "type": col[1]} for col in self.cursor.fetchall()
-        ]
+        columns = [{"name": col[0], "type": col[1]} for col in self.cursor.fetchall()]
         logger.info(f"Found {len(columns)} columns in table {table_name}.")
         return columns
 
@@ -112,9 +106,7 @@ class SqlBaseConnector(BaseConnector):
             ConnectorError: If the database connection is not established.
         """
         if not self.cursor or not self.schema_name:
-            raise ConnectorError(
-                "Must connect to the DB first and set schema_name."
-            )
+            raise ConnectorError("Must connect to the DB first and set schema_name.")
 
         logger.info(f"Fetching views from schema: {self.schema_name}")
 
@@ -126,8 +118,7 @@ class SqlBaseConnector(BaseConnector):
 
         self.cursor.execute(query, (self.schema_name,))
         views = [
-            {"name": view[0], "definition": view[1]}
-            for view in self.cursor.fetchall()
+            {"name": view[0], "definition": view[1]} for view in self.cursor.fetchall()
         ]
         logger.info(f"Found {len(views)} views.")
         return views
@@ -143,9 +134,7 @@ class SqlBaseConnector(BaseConnector):
             ConnectorError: If the database connection is not established.
         """
         if not self.cursor or not self.schema_name:
-            raise ConnectorError(
-                "Must connect to the DB first and set schema_name."
-            )
+            raise ConnectorError("Must connect to the DB first and set schema_name.")
 
         logger.info(
             f"Fetching foreign key relationships for schema: {self.schema_name}"
@@ -184,6 +173,65 @@ class SqlBaseConnector(BaseConnector):
         ]
         logger.info(f"Found {len(foreign_keys)} foreign key relationships.")
         return foreign_keys
+
+    def get_column_profile(self, table_name: str, column_name: str) -> Dict[str, Any]:
+        """
+        Generates profile stats for a column using standard ANSI SQL.
+        """
+        if not self.cursor or not self.schema_name:
+            raise ConnectorError("Must connect to the DB first and set schema_name.")
+
+        query = f"""
+        SELECT
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) AS null_count,
+            COUNT(DISTINCT "{column_name}") AS distinct_count
+        FROM "{self.schema_name}"."{table_name}"
+        """
+
+        try:
+            self.cursor.execute(query)
+            row = self.cursor.fetchone()
+
+            total_count = row[0]
+            null_count = row[1] if row[1] is not None else 0
+            distinct_count = row[2] if row[2] is not None else 0
+
+            if total_count == 0:
+                logger.info(
+                    f"  - Profile for {table_name}.{column_name}: Table is empty."
+                )
+                return {
+                    "null_ratio": 0,
+                    "distinct_count": 0,
+                    "is_unique": True,
+                    "total_count": 0,
+                }
+
+            null_ratio = null_count / total_count
+            is_unique = (distinct_count == total_count) and (null_count == 0)
+
+            stats = {
+                "total_count": total_count,
+                "null_ratio": round(null_ratio, 2),
+                "distinct_count": distinct_count,
+                "is_unique": is_unique,
+            }
+            logger.info(f"  - Profile for {table_name}.{column_name}: {stats}")
+            return stats
+
+        except Exception as e:
+            # Log error but don't crash the whole scan
+            logger.warning(
+                f"Failed to profile column {table_name}.{column_name}: {e}",
+                exc_info=True,
+            )
+            return {
+                "null_ratio": "N/A",
+                "distinct_count": "N/A",
+                "is_unique": False,
+                "total_count": "N/A",
+            }
 
     def close(self):
         """Closes the database cursor and connection."""

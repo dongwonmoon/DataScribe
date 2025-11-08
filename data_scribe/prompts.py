@@ -14,9 +14,33 @@ and dbt metadata.
 # - {col_name}: The name of the column.
 # - {col_type}: The data type of the column.
 # - {table_name}: The name of the table the column belongs to.
-COLUMN_DESCRIPTION_PROMPT = """  
-Briefly describe the business meaning of the '{col_name}' ({col_type}) column in table '{table_name}' in under 15 characters.  
-(Example: Unique identifier of a user)  
+# - {profile_context}: A string containing the data profile stats.
+COLUMN_DESCRIPTION_PROMPT = """
+You are a Data Analyst. Your task is to write a brief, business-focused description
+for a database column (under 15 words).
+
+Base Context:
+- Table: {table_name}
+- Column: {col_name}
+- Type: {col_type}
+
+Data Profile Context:
+{profile_context}
+
+Instructions:
+1.  Use the Data Profile to make your description more accurate.
+2.  If 'is_unique' is True, mention it (e.g., "Unique ID...").
+3.  If 'distinct_count' is low (e.g., < 10), it's likely a category (e.g., "Status of...").
+4.  If 'null_ratio' is high (e.g., > 0.5), it's likely optional (e.g., "User's middle name (optional)").
+5.  Just provide the description, nothing else.
+
+Example 1 (for an 'id' column with is_unique=True):
+A unique identifier for each {table_name}.
+
+Example 2 (for a 'status' column with distinct_count=4):
+The current status of the {table_name} (e.g., pending, shipped).
+
+Description:
 """
 
 # Prompt template for generating a high-level summary for a dbt model.

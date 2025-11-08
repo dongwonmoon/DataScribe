@@ -52,12 +52,8 @@ class SQLiteConnector(BaseConnector):
             self.cursor = self.connection.cursor()
             logger.info("Successfully connected to SQLite database.")
         except sqlite3.Error as e:
-            logger.error(
-                f"Failed to connect to SQLite database: {e}", exc_info=True
-            )
-            raise ConnectorError(
-                f"Failed to connect to SQLite database: {e}"
-            ) from e
+            logger.error(f"Failed to connect to SQLite database: {e}", exc_info=True)
+            raise ConnectorError(f"Failed to connect to SQLite database: {e}") from e
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}", exc_info=True)
             raise ConnectorError(f"An unexpected error occurred: {e}") from e
@@ -78,9 +74,7 @@ class SQLiteConnector(BaseConnector):
 
         logger.info("Fetching table names from the database.")
         # Query the sqlite_master table to get the names of all tables
-        self.cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table';"
-        )
+        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         # Extract the table names from the query result
         tables = [table[0] for table in self.cursor.fetchall()]
         logger.info(f"Found {len(tables)} tables.")
@@ -105,9 +99,7 @@ class SQLiteConnector(BaseConnector):
         self.cursor.execute(f"PRAGMA table_info('{table_name}');")
         # The result of PRAGMA table_info is a tuple: (cid, name, type, notnull, dflt_value, pk)
         # We extract just the name (index 1) and type (index 2).
-        columns = [
-            {"name": col[1], "type": col[2]} for col in self.cursor.fetchall()
-        ]
+        columns = [{"name": col[1], "type": col[2]} for col in self.cursor.fetchall()]
         logger.info(f"Found {len(columns)} columns in table {table_name}.")
         return columns
 
@@ -119,12 +111,9 @@ class SQLiteConnector(BaseConnector):
             )
 
         logger.info("Fetching views from the database.")
-        self.cursor.execute(
-            "SELECT name, sql FROM sqlite_master WHERE type='view';"
-        )
+        self.cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='view';")
         views = [
-            {"name": view[0], "definition": view[1]}
-            for view in self.cursor.fetchall()
+            {"name": view[0], "definition": view[1]} for view in self.cursor.fetchall()
         ]
         logger.info(f"Found {len(views)} views.")
         return views
@@ -163,6 +152,66 @@ class SQLiteConnector(BaseConnector):
 
         logger.info(f"Found {len(foreign_keys)} foreign key relationships.")
         return foreign_keys
+
+    def get_column_profile(self, table_name: str, column_name: str) -> Dict[str, Any]:
+        """
+        Generates profile stats for a SQLite column using a single, efficient query.
+        """
+        if not self.cursor:
+            raise ConnectorError(
+                "Database connection not established. Call connect() first."
+            )
+
+        # This single query replaces 3 separate ones for efficiency.
+        query = f"""
+        SELECT
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) AS null_count,
+            COUNT(DISTINCT "{column_name}") AS distinct_count
+        FROM "{table_name}"
+        """
+
+        try:
+            self.cursor.execute(query)
+            row = self.cursor.fetchone()
+
+            total_count = row[0]
+            null_count = row[1] if row[1] is not None else 0
+            distinct_count = row[2] if row[2] is not None else 0
+
+            if total_count == 0:
+                logger.info(
+                    f"  - Profile for {table_name}.{column_name}: Table is empty."
+                )
+                return {
+                    "null_ratio": 0,
+                    "distinct_count": 0,
+                    "is_unique": True,
+                    "total_count": 0,
+                }
+
+            null_ratio = null_count / total_count
+            is_unique = (distinct_count == total_count) and (null_count == 0)
+
+            stats = {
+                "total_count": total_count,
+                "null_ratio": round(null_ratio, 2),
+                "distinct_count": distinct_count,
+                "is_unique": is_unique,
+            }
+            logger.info(f"  - Profile for {table_name}.{column_name}: {stats}")
+            return stats
+        except sqlite3.Error as e:
+            logger.warning(
+                f"Failed to profile column {table_name}.{column_name}: {e}",
+                exc_info=True,
+            )
+            return {
+                "null_ratio": "N/A",
+                "distinct_count": "N/A",
+                "is_unique": False,
+                "total_count": "N/A",
+            }
 
     def close(self):
         """Closes the database connection if it is open."""

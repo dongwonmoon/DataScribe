@@ -35,9 +35,19 @@ class CatalogGenerator:
         self.db_connector = db_connector
         self.llm_client = llm_client
 
-    def generate_catalog(
-        self, db_profile_name: str
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    def _format_profile_stats(self, profile_stats: Dict[str, Any]) -> str:
+        """
+        Helper function to format column profiling stats into a string for the LLM prompt.
+        This provides the LLM with context about the column's data distribution.
+        """
+        context_lines = [
+            f"- Null Ratio: {profile_stats.get('null_ratio', 'N/A')} (0.0 = no nulls)",
+            f"- Is Unique: {profile_stats.get('is_unique', 'N/A')}",
+            f"- Distinct Count: {profile_stats.get('distinct_count', 'N/A')}",
+        ]
+        return "\n".join(context_lines)
+
+    def generate_catalog(self, db_profile_name: str) -> Dict[str, List[Dict[str, Any]]]:
         """
         Generates a data catalog by fetching schema information from the database
         and enriching it with descriptions from an LLM.
@@ -46,55 +56,87 @@ class CatalogGenerator:
             db_profile_name: The name of the database profile being used, for logging purposes.
 
         Returns:
-            A dictionary representing the data catalog. The keys are table names,
-            and the values are lists of dictionaries, where each dictionary
-            represents a column with its name, type, and AI-generated description.
+            A dictionary representing the data catalog with the following structure:
+            {
+                "tables": [
+                    {
+                        "name": "table_name",
+                        "columns": [
+                            {
+                                "name": "col_name",
+                                "type": "col_type",
+                                "description": "AI-generated description.",
+                                "profile_stats": { ... }
+                            },
+                            ...
+                        ]
+                    },
+                    ...
+                ],
+                "views": [
+                    {
+                        "name": "view_name",
+                        "definition": "CREATE VIEW ...",
+                        "ai_summary": "AI-generated summary."
+                    },
+                    ...
+                ],
+                "foreign_keys": [ { ... } ]
+            }
         """
         catalog_data = {"tables": [], "views": [], "foreign_keys": []}
         logger.info(f"Fetching tables for database profile: {db_profile_name}")
-        # Retrieve the list of table names from the database
+
+        # --- 1. Process Tables and Columns ---
         tables = self.db_connector.get_tables()
         logger.info(f"Found {len(tables)} tables: {tables}")
 
-        # Iterate over each table to process its columns
         for table_name in tables:
             logger.info(f"Processing table: {table_name}")
-            # Get the list of columns for the current table
             columns = self.db_connector.get_columns(table_name)
             enriched_columns = []
 
-            # For each column, generate a description using the LLM
+            # For each column, profile it and generate a description using the LLM
             for column in columns:
                 col_name = column["name"]
                 col_type = column["type"]
+
+                # Profile the column to get statistics for better context.
+                logger.info(f"  - Profiling column: {table_name}.{col_name}...")
+                profile_stats = self.db_connector.get_column_profile(
+                    table_name, col_name
+                )
+                profile_context = self._format_profile_stats(profile_stats)
+
                 logger.info(
                     f"  - Generating description for column: {col_name} ({col_type})"
                 )
 
-                # Format the prompt with table and column details
+                # Format the prompt with table, column, and profiling details.
                 prompt = COLUMN_DESCRIPTION_PROMPT.format(
-                    table_name=table_name, col_name=col_name, col_type=col_type
+                    table_name=table_name,
+                    col_name=col_name,
+                    col_type=col_type,
+                    profile_context=profile_context,
                 )
 
-                # Get the column description from the LLM client
-                description = self.llm_client.get_description(
-                    prompt, max_tokens=50
-                )
+                # Get the column description from the LLM client.
+                description = self.llm_client.get_description(prompt, max_tokens=50)
 
-                # Append the enriched column data to the list
                 enriched_columns.append(
                     {
                         "name": col_name,
                         "type": col_type,
                         "description": description,
+                        "profile_stats": profile_stats,
                     }
                 )
-            # Add the table and its enriched columns to the catalog
             catalog_data["tables"].append(
                 {"name": table_name, "columns": enriched_columns}
             )
             logger.info(f"Finished processing table: {table_name}")
 
+        # --- 2. Process Views ---
         logger.info("Fetching views...")
         views = self.db_connector.get_views()
         enriched_views = []
@@ -102,8 +144,9 @@ class CatalogGenerator:
         for view in views:
             view_name = view["name"]
             view_sql = view["definition"]
-            logger.info(f"  - Generating description for view: {view_name}")
+            logger.info(f"  - Generating summary for view: {view_name}")
 
+            # Format the prompt with view details.
             prompt = VIEW_SUMMARY_PROMPT.format(
                 view_name=view_name, view_definition=view_sql
             )
@@ -118,10 +161,10 @@ class CatalogGenerator:
             )
         catalog_data["views"] = enriched_views
 
+        # --- 3. Process Foreign Keys ---
         logger.info("Fetching foreign keys...")
         foreign_keys = self.db_connector.get_foreign_keys()
         catalog_data["foreign_keys"] = foreign_keys
 
         logger.info("Catalog generation completed.")
-
         return catalog_data

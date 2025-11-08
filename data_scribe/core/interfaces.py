@@ -98,6 +98,21 @@ class BaseConnector(ABC):
         pass
 
     @abstractmethod
+    def get_column_profile(self, table_name: str, column_name: str) -> Dict[str, Any]:
+        """
+        Retrieves profiling statistics for a specific column.
+
+        Args:
+            table_name: The name of the table.
+            column_name: The name of the column to profile.
+
+        Returns:
+            A dictionary of statistics, e.g.,
+            {'null_ratio': 0.1, 'distinct_count': 150, 'is_unique': False, 'total_count': 1500}
+        """
+        pass
+
+    @abstractmethod
     def close(self):
         """
         Closes the active database connection and releases any resources.
