@@ -1,192 +1,124 @@
-# Data Scribe: AI-Powered Data Documentation
+# ✍️ Data Scribe: AI-Powered Data Documentation
 
-Data Scribe is a command-line tool that automates the generation of data catalogs for your database schemas and dbt projects. It inspects your data sources, extracts metadata, and leverages Large Language Models (LLMs) to produce clear, business-friendly documentation.
+**Tired of writing data documentation? Let AI do it for you.**
 
-This tool streamlines the data documentation process, making it easier for analysts, data scientists, and business stakeholders to discover, understand, and trust their data assets.
+Data Scribe is a CLI tool that scans your databases and dbt projects, uses AI to generate descriptions, and automatically updates your documentation.
 
-## Key Features
+---
 
-- **Automated Catalog Generation**: Scan databases or dbt projects to automatically generate documentation.
-- **LLM-Powered Descriptions**: Uses AI to create meaningful business descriptions for your models and columns.
-- **dbt Integration**:
-    - **Directly Update YAML**: Seamlessly update your dbt `schema.yml` files with AI-generated descriptions and tests.
-    - **CI/CD Validation**: Use the `--check` flag in your CI pipeline to ensure documentation is always up-to-date and fails builds if it's not.
-- **Broad Compatibility**:
-    - **Supported Databases**: PostgreSQL, SQLite, MariaDB, and MySQL.
-    - **Supported LLMs**: OpenAI (GPT series), Ollama (for local models), and Google Gemini.
-- **Extensible by Design**: Easily add new database connectors or LLM clients to fit your stack.
-- **Markdown Output**: Generates clean, readable Markdown files for easy sharing and version control.
+## ✨ The Magic: See it in Action
 
-## Getting Started
+Stop manually updating YAML files or writing Markdown tables. Let `data-scribe` do the work in seconds.
 
-### Prerequisites
+| **Magically update dbt `schema.yml`** | **Instantly generate DB catalogs (w/ ERD)** |
+| :---: | :---: |
+| Run `data-scribe dbt --update` and watch AI fill in your missing descriptions, tags, and tests. | Point `data-scribe db` at a database and get a full Markdown catalog, complete with a Mermaid ERD. |
+| ![dbt Workflow Demo](asset/dbt_demo.gif) | ![Database Scan Demo](asset/markdown_demo.gif) |
 
-- Python 3.8+
-- Git
+## 🚀 Quick Start (60 Seconds)
 
-### 1. Clone the Repository
+Get your first AI-generated catalog in less than a minute.
+
+### 1. Install
+
+Clone the repo and install dependencies.
 
 ```bash
-git clone https://github.com/dongwonmoon/DataScribe.git
+git clone [https://github.com/dongwonmoon/DataScribe.git](https://github.com/dongwonmoon/DataScribe.git)
 cd DataScribe
-```
-
-### 2. Install Dependencies
-
-Install the required Python packages:
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure API Keys (`.env`)
+*(Note: For specific databases, install optional dependencies: `pip install -e ".[postgres, snowflake]"`)*
 
-Create a `.env` file in the root of the project to store your secret API keys.
+### 2. Initialize
 
-**Example:**
-```env
-# .env
-OPENAI_API_KEY="sk-..."
-GOOGLE_API_KEY="AIza..."
+Run the interactive wizard. It will guide you through setting up your database and LLM, automatically creating `config.yaml` and a secure `.env` file for your API keys.
+
+```bash
+data-scribe init
 ```
 
-### 4. Configure Connections (`config.yaml`)
+### 3. Run!
 
-Create a `config.yaml` file to define your database connections and LLM providers. You can set default providers to use when no command-line options are specified.
+You're all set.
 
-**Example `config.yaml`:**
-```yaml
-# Set the default profiles to use if --db or --llm flags are not provided
-default:
-  db: dev_postgres
-  llm: openai_prod
+**For a dbt project:**
+(Make sure `dbt compile` has been run to create `manifest.json`)
+```bash
+# See what's missing (CI check)
+data-scribe dbt --project-dir /path/to/your/dbt/project --check
 
-# Define all your database connection profiles
-db_connections:
-  local_sqlite:
-    type: "sqlite"
-    path: "jaffle_shop.db" # Path to your SQLite file
+# Let AI fix it
+data-scribe dbt --project-dir /path/to/your/dbt/project --update
+```
 
-  dev_postgres:
-    type: "postgres"
-    host: "localhost"
-    port: 5432
-    user: "admin"
-    password: "password"
-    dbname: "analytics_db"
-
-  prod_mariadb:
-    type: "mariadb"
-    host: "prod.db.example.com"
-    port: 3306
-    user: "readonly_user"
-    password: "db_password"
-    dbname: "production"
-
-# Define all your LLM provider profiles
-llm_providers:
-  openai_prod:
-    provider: "openai"
-    model: "gpt-4o-mini"
-
-  google_gemini:
-    provider: "google"
-    model: "gemini-1.5-flash"
-
-  local_ollama:
-    provider: "ollama"
-    model: "llama3"
-    host: "http://localhost:11434"
+**For a database:**
+(Assuming you created an output profile named `my_markdown` during `init`)
+```bash
+data-scribe db --output my_markdown
 ```
 
 ---
-**Note on Secrets**: For sensitive values like passwords and API tokens, you can use environment variables. Data Scribe will automatically expand any value with the format `${VAR_NAME}`.
 
-**Example:**
-```yaml
-  prod_mariadb:
-    type: "mariadb"
-    host: "prod.mariadb.com"
-    user: "admin"
-    password: "${MARIADB_PASSWORD}" # Loaded from environment variable
-    dbname: "production_db"
-```
+## ✅ Key Features
 
-## Usage
+-   **🤖 Automated Catalog Generation**: Scans live databases or dbt projects to generate documentation.
+-   **✍️ LLM-Powered Descriptions**: Uses AI (OpenAI, Google, Ollama) to create meaningful business descriptions for tables, views, models, and columns.
+-   **🧬 Deep dbt Integration**:
+    -   **Direct YAML Updates**: Seamlessly updates your dbt `schema.yml` files with AI-generated content.
+    -   **CI/CD Validation**: Use the `--check` flag in your CI pipeline to fail builds if documentation is outdated.
+-   **🔒 Security-Aware**: The `init` wizard helps you store sensitive keys (passwords, API tokens) in a `.env` file, not in `config.yaml`.
+-   **🔌 Extensible by Design**: A pluggable architecture supports multiple backends.
 
-Data Scribe offers two main commands: `db` for databases and `dbt` for dbt projects.
+---
 
-### Scanning a Database (`db`)
+## 🛠️ Supported Backends
 
-This command scans a database schema and generates a Markdown data catalog.
+| Type | Supported Providers |
+| :--- | :--- |
+| **Databases** | `sqlite`, `postgres`, `mariadb`, `mysql`, `duckdb`, `snowflake` |
+| **LLMs** | `openai`, `ollama`, `google` |
+| **Outputs** | `markdown`, `dbt-markdown`, `json`, `confluence` |
 
-```bash
-python -m data_scribe.main db [OPTIONS]
-```
+---
 
-**Options:**
+## Command Reference
 
-- `--db TEXT`: The database profile from `config.yaml` to use. (Overrides default)
-- `--llm TEXT`: The LLM profile from `config.yaml` to use. (Overrides default)
-- `--config TEXT`: Path to the configuration file. (Default: `config.yaml`)
-- `--output TEXT`: Name of the output Markdown file. (Default: `db_catalog.md`)
+### `data-scribe init`
 
-**Example:**
-```bash
-# Use the default db and llm profiles from config.yaml
-python -m data_scribe.main db
+Runs the interactive wizard to create `config.yaml` and `.env` files. This is the recommended first step.
 
-# Specify a different database and output file
-python -m data_scribe.main db --db prod_mariadb --output prod_catalog.md
-```
+### `data-scribe db`
 
-### Scanning a dbt Project (`dbt`)
+Scans a live database and generates a catalog.
 
-This command scans a dbt project, generates documentation, and can either create a Markdown file or update your `schema.yml` files directly.
+-   `--db TEXT`: (Optional) The database profile from `config.yaml` to use. Overrides default.
+-   `--llm TEXT`: (Optional) The LLM profile from `config.yaml` to use. Overrides default.
+-   `--output TEXT`: (Required) The output profile from `config.yaml` to use.
 
-```bash
-python -m data_scribe.main dbt [OPTIONS]
-```
+### `data-scribe dbt`
 
-**Options:**
+Scans a dbt project's `manifest.json` file.
 
-- `--project-dir TEXT`: **(Required)** Path to the dbt project directory.
-- `--llm TEXT`: The LLM profile to use. (Overrides default)
-- `--output TEXT`: Name of the output Markdown file. (Default: `dbt_catalog.md`)
-- `--update`: A flag to directly update dbt `schema.yml` files with AI-generated content.
-- `--check`: A flag for CI/CD. The command fails if documentation is missing or outdated, preventing merges.
+-   `--project-dir TEXT`: **(Required)** Path to the dbt project directory.
+-   `--update`: (Flag) Directly update dbt `schema.yml` files.
+-   `--check`: (Flag) Run in CI mode. Fails if documentation is outdated.
+-   `--llm TEXT`: (Optional) The LLM profile to use.
+-   `--output TEXT`: (Optional) The output profile to use (if not using `--update`).
 
-**Examples:**
+---
 
-1.  **Generate a Markdown catalog:**
-    ```bash
-    python -m data_scribe.main dbt --project-dir ./path/to/dbt/project
-    ```
+## 💡 Extensibility
 
-2.  **Directly update `schema.yml` files:**
-    ```bash
-    python -m data_scribe.main dbt --project-dir ./path/to/dbt/project --update
-    ```
+Adding a new database, LLM, or writer is easy:
 
-3.  **Run a CI check to enforce documentation:**
-    ```bash
-    python -m data_scribe.main dbt --project-dir ./path/to/dbt/project --check
-    ```
+1.  Create a new class in the appropriate directory (e.g., `data_scribe/components/db_connectors`).
+2.  Implement the base interface (e.g., `BaseConnector`).
+3.  Register your new class in `data_scribe/core/factory.py`.
 
-## Extensibility
+The `init` command and core logic will automatically pick up your new component.
 
-Data Scribe is designed for easy extension.
-
-### Adding a New Database Connector
-
-1.  Create a new connector class in `data_scribe/components/db_connectors` that implements the `BaseConnector` interface.
-2.  Register the new class in the `DB_CONNECTOR_REGISTRY` in `data_scribe/core/factory.py`.
-
-### Adding a New LLM Client
-
-1.  Create a new client class in `data_scribe/components/llm_clients` that implements the `BaseLLMClient` interface.
-2.  Register the new class in the `LLM_CLIENT_REGISTRY` in `data_scribe/core/factory.py`.
-
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to open an issue or submit a pull request.
