@@ -1,72 +1,15 @@
 default:
-  db: local_sqlite
+  db: dev_sqlite
   llm: openai_prod
-
 db_connections:
-  local_sqlite:
-    type: "sqlite"     
-    path: "test.db" 
-
-  local_files:
-    type: "duckdb"
-    path: "./jaffle_shop/target/*.parquet"
-
-  s3_logs:
-    type: "duckdb"
-    path: "s3://my-log-bucket/logs_2024_*.csv"
-
-  dev_postgres:
-    type: "postgres"
-    host: "localhost"
-    port: 5432
-    user: "admin"
-    password: "password"
-    dbname: "analytics_db"
-
-  prod_mariadb:
-    type: "mariadb"
-    host: "prod.mariadb.com"
-    user: "admin"
-    password: "${MARIADB_PASSWORD}"
-    dbname: "production_db"
-
-  prod_snowflake:
-    type: "snowflake"
-    user: "DATA_SCRIBE_USER"
-    password: "${SNOWFLAKE_PASSWORD}"
-    account: "YOUR_ACCOUNT.ap-northeast-2.aws"
-    warehouse: "COMPUTE_WH"
-    database: "ANALYTICS"
-    schema: "PUBLIC"
-
+  dev_sqlite:
+    type: sqlite
+    path: demo.db
 llm_providers:
   openai_prod:
-    provider: "openai"  
-    model: "gpt-3.5-turbo"
-
-  local_ollama:
-    provider: "ollama"
-    model: "granite3.3:2b"
-    host: "http://localhost:11434"
-
-  google_gemini:
-    provider: "google"
-    model: "gemini-2.5-flash"
-
+    provider: openai
+    model: gpt-3.5-turbo
 output_profiles:
-  default_markdown:
-    type: "markdown"
-    output_filename: "db_catalog.md"
-
-  default_json:
-    type: "json"
-    output_filename: "catalog.json"
-
-  dev_confluence_space:
-    type: "confluence"
-    url: "https://YOUR_DOMAIN.atlassian.net"
-    space_key: "YOUR_SPACE_KEY"
-    parent_page_id: "12345678"
-    page_title_prefix: "Data Scribe Catalog"
-    username: "your-email@example.com"
-    api_token: "${CONFLUENCE_API_TOKEN}"
+  my_markdown:
+    type: markdown
+    output_filename: catalog.md

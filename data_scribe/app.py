@@ -11,7 +11,7 @@ import typer
 import functools
 import os
 import yaml
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from data_scribe.core.db_workflow import DbWorkflow
 from data_scribe.core.dbt_workflow import DbtWorkflow
@@ -66,6 +66,156 @@ def handle_exceptions(func):
             raise typer.Exit(code=1)
 
     return wrapper
+
+
+# --- Helper function for dynamic menus ---
+
+
+def _select_from_registry(registry: dict, title: str) -> Optional[str]:
+    """
+    Displays a dynamic, numbered menu from a registry and validates the choice.
+
+    Args:
+        registry: A dictionary (e.g., DB_CONNECTOR_REGISTRY).
+        title: The title for the menu (e.g., "Database Connection").
+
+    Returns:
+        The selected registry key (e.g., "sqlite") or None if the user skips.
+    """
+    logger.info(typer.style(f"\n--- 1. Select a {title} ---", fg=typer.colors.CYAN))
+
+    available_types = list(registry.keys())
+    for i, key in enumerate(available_types, 1):
+        print(f"  {i}: {key}")
+    print(typer.style(f"  0: [Skip this section]", fg=typer.colors.BRIGHT_BLACK))
+
+    # Internal loop for input validation
+    while True:
+        choice_str = typer.prompt("Select an option (or 0 to skip)")
+
+        try:
+            choice_int = int(choice_str)
+            if choice_int == 0:
+                return None  # User chose to skip
+            if 1 <= choice_int <= len(available_types):
+                return available_types[choice_int - 1]  # User made a valid choice
+        except ValueError:
+            pass  # Fall through to the error message
+
+        logger.warning(
+            f"Invalid selection. Please enter a number between 0 and {len(available_types)}."
+        )
+
+
+def _prompt_db_params(
+    db_type: str, profile_name: str, env_data: Dict[str, str]
+) -> Dict[str, Any]:
+    """Prompts for parameters for a specific db_type."""
+    params = {"type": db_type}
+
+    if db_type == "sqlite":
+        params["path"] = typer.prompt(
+            "Path to the SQLite database file", default="demo.db"
+        )
+
+    elif db_type in ["postgres", "mariadb", "mysql"]:
+        params["host"] = typer.prompt("Host", default="localhost")
+        params["port"] = typer.prompt(
+            "Port", default=5432 if db_type == "postgres" else 3306
+        )
+        params["user"] = typer.prompt("User")
+        pw = typer.prompt(
+            f"Password (sensitive, will be stored in .env)", hide_input=True
+        )
+        env_key = f"{profile_name.upper()}_PASSWORD"
+        params["password"] = f"${{{env_key}}}"
+        env_data[env_key] = pw
+        params["dbname"] = typer.prompt("Database (dbname)")
+        if db_type == "postgres":
+            params["schema"] = typer.prompt("Schema (optional)", default="public")
+
+    elif db_type == "snowflake":
+        params["account"] = typer.prompt("Account (e.g. xy12345.ap-northeast-2.aws)")
+        params["user"] = typer.prompt("User")
+        pw = typer.prompt(
+            f"Password (sensitive, will be stored in .env)", hide_input=True
+        )
+        env_key = f"{profile_name.upper()}_PASSWORD"
+        params["password"] = f"${{{env_key}}}"
+        env_data[env_key] = pw
+        params["warehouse"] = typer.prompt("Warehouse")
+        params["database"] = typer.prompt("Database")
+        params["schema"] = typer.prompt("Schema", default="PUBLIC")
+
+    elif db_type == "duckdb":
+        params["path"] = typer.prompt(
+            "DB file or file pattern path (e.g. ./logs/*.parquet, s3://...)",
+            default="local.db",
+        )
+
+    return params
+
+
+def _prompt_llm_params(
+    llm_type: str, profile_name: str, env_data: Dict[str, str]
+) -> Dict[str, Any]:
+    """Prompts for parameters for a specific llm_type."""
+    params = {"provider": llm_type}
+
+    if llm_type == "openai":
+        params["model"] = typer.prompt("Model", default="gpt-3.5-turbo")
+        if "OPENAI_API_KEY" not in env_data:
+            key = typer.prompt(
+                "OpenAI API Key (sensitive, will be stored in .env)", hide_input=True
+            )
+            env_data["OPENAI_API_KEY"] = key
+
+    elif llm_type == "google":
+        params["model"] = typer.prompt("Model", default="gemini-2.5-flash")
+        if "GOOGLE_API_KEY" not in env_data:
+            key = typer.prompt(
+                "Google API Key (sensitive, will be stored in .env)", hide_input=True
+            )
+            env_data["GOOGLE_API_KEY"] = key
+
+    elif llm_type == "ollama":
+        params["model"] = typer.prompt("Model (e.g: llama3)")
+        params["host"] = typer.prompt(
+            "Ollama Host URL", default="http://localhost:11434"
+        )
+
+    return params
+
+
+def _prompt_writer_params(
+    writer_type: str, profile_name: str, env_data: Dict[str, str]
+) -> Dict[str, Any]:
+    """Prompts for parameters for a specific writer_type."""
+    params = {"type": writer_type}
+
+    if writer_type in ["markdown", "dbt-markdown", "json"]:
+        default_name = f"catalog.{'json' if writer_type == 'json' else 'md'}"
+        params["output_filename"] = typer.prompt(
+            "Output file name", default=default_name
+        )
+
+    elif writer_type == "confluence":
+        params["url"] = typer.prompt(
+            "Confluence URL (e.g. https://your-domain.atlassian.net)"
+        )
+        params["space_key"] = typer.prompt("Confluence Space Key (e.g. DS)")
+        params["parent_page_id"] = typer.prompt("Confluence Parent Page ID (numeric)")
+        params["page_title_prefix"] = typer.prompt(
+            "Page title prefix", default="Data Scribe Catalog"
+        )
+        params["username"] = typer.prompt("Confluence Username (email)")
+
+        if "CONFLUENCE_API_TOKEN" not in env_data:
+            token = typer.prompt("Confluence API Token (sensitive)", hide_input=True)
+            env_data["CONFLUENCE_API_TOKEN"] = token
+        params["api_token"] = "${CONFLUENCE_API_TOKEN}"
+
+    return params
 
 
 @app.command(name="db")
@@ -152,6 +302,9 @@ def scan_dbt(
 @app.command(name="init")
 @handle_exceptions
 def init_config():
+    """
+    Run an interactive wizard to create your config.yaml and .env files.
+    """
     if os.path.exists(CONFIG_FILE):
         overwrite = typer.confirm(
             f"'{CONFIG_FILE}' already exists. Overwrite?", default=False
@@ -160,7 +313,10 @@ def init_config():
             logger.info("Aborting configuration initialization.")
             raise typer.Exit(code=0)
 
-    logger.info(f"Creating '{CONFIG_FILE}'...")
+    logger.info(f"Starting the Data Scribe configuration wizard...")
+    logger.info(
+        f"This will create '{CONFIG_FILE}' and '{ENV_FILE}' in the current directory."
+    )
 
     config_data: Dict[str, Any] = {
         "default": {},
@@ -170,177 +326,56 @@ def init_config():
     }
     env_data: Dict[str, str] = {}
 
-    # DB Connections
+    # 1. DB Connections
     logger.info(
         typer.style(
             "\n--- 1. Database Connections ---", fg=typer.colors.CYAN, bold=True
         )
     )
-    db_types_to_add = []
-    available_db_types = list(DB_CONNECTOR_REGISTRY.keys())
-
-    for db_type in available_db_types:
-        if typer.confirm(f"Would you like to add a '{db_type}' connection?"):
-            db_types_to_add.append(db_type)
-
-    for db_type in db_types_to_add:
+    db_type = _select_from_registry(DB_CONNECTOR_REGISTRY, "Database Connection")
+    if db_type:
         profile_name = typer.prompt(
-            f"\nProfile name for the '{db_type}' connection (e.g. dev_{db_type})"
+            f"\nProfile name for '{db_type}' (e.g. dev_{db_type})"
         )
-        params = {"type": db_type}
-
-        if db_type == "sqlite":
-            params["path"] = typer.prompt(
-                "Path to the SQLite database file", default="test.db"
-            )
-
-        elif db_type in ["postgres", "mariadb", "mysql"]:
-            params["host"] = typer.prompt("Host", default="localhost")
-            params["port"] = typer.prompt(
-                "Port", default=5432 if db_type == "postgres" else 3306
-            )
-            params["user"] = typer.prompt("User")
-            pw = typer.prompt(
-                f"Password (sensitive information, stored in .env)", hide_input=True
-            )
-            env_key = f"{profile_name.upper()}_PASSWORD"
-            params["password"] = f"${{{env_key}}}"
-            env_data[env_key] = pw
-            params["dbname"] = typer.prompt("Database (dbname)")
-            if db_type == "postgres":
-                params["schema"] = typer.prompt("Schema (optional)", default="public")
-
-        elif db_type == "snowflake":
-            params["account"] = typer.prompt("Account (예: xy12345.ap-northeast-2.aws)")
-            params["user"] = typer.prompt("User")
-            pw = typer.prompt(
-                f"Password (sensitive information, stored in .env)", hide_input=True
-            )
-            env_key = f"{profile_name.upper()}_PASSWORD"
-            params["password"] = f"${{{env_key}}}"
-            env_data[env_key] = pw
-            params["warehouse"] = typer.prompt("Warehouse")
-            params["database"] = typer.prompt("Database")
-            params["schema"] = typer.prompt("Schema", default="PUBLIC")
-
-        elif db_type == "duckdb":
-            params["path"] = typer.prompt(
-                "DB file or file pattern path (e.g. ./logs/*.parquet, s3://...)",
-                default="local.db",
-            )
-
+        params = _prompt_db_params(db_type, profile_name, env_data)
         config_data["db_connections"][profile_name] = params
+        config_data["default"]["db"] = profile_name  # Set as default
+        logger.info(f"Added DB profile: '{profile_name}' (set as default)")
+    else:
+        logger.info("Skipping Database Connection setup.")
 
-    # LLM Providers
+    # 2. LLM Providers
     logger.info(
         typer.style("\n--- 2. LLM Providers ---", fg=typer.colors.CYAN, bold=True)
     )
-    llm_types_to_add = []
-    available_llm_types = list(LLM_CLIENT_REGISTRY.keys())
-
-    for llm_type in available_llm_types:
-        if typer.confirm(f"Would you like to add a '{llm_type}' provider?"):
-            llm_types_to_add.append(llm_type)
-
-    for llm_type in llm_types_to_add:
+    llm_type = _select_from_registry(LLM_CLIENT_REGISTRY, "LLM Provider")
+    if llm_type:
         profile_name = typer.prompt(
-            f"\n'{llm_type}' provider's profile name (e.g. {llm_type}_prod)"
+            f"\nProfile name for '{llm_type}' (e.g. {llm_type}_prod)"
         )
-        params = {"provider": llm_type}
-
-        if llm_type == "openai":
-            params["model"] = typer.prompt("Model", default="gpt-3.5-turbo")
-            if "OPENAI_API_KEY" not in env_data:
-                key = typer.prompt(
-                    "OpenAI API Key (sensitive information, stored in .env)",
-                    hide_input=True,
-                )
-                env_data["OPENAI_API_KEY"] = key
-
-        elif llm_type == "google":
-            params["model"] = typer.prompt("Model", default="gemini-2.5-flash")
-            if "GOOGLE_API_KEY" not in env_data:
-                key = typer.prompt(
-                    "Google API Key (sensitive information, stored in .env)",
-                    hide_input=True,
-                )
-                env_data["GOOGLE_API_KEY"] = key
-
-        elif llm_type == "ollama":
-            params["model"] = typer.prompt("Model (e.g: llama3)")
-            params["host"] = typer.prompt(
-                "Ollama Host URL", default="http://localhost:11434"
-            )
-
+        params = _prompt_llm_params(llm_type, profile_name, env_data)
         config_data["llm_providers"][profile_name] = params
+        config_data["default"]["llm"] = profile_name  # Set as default
+        logger.info(f"Added LLM profile: '{profile_name}' (set as default)")
+    else:
+        logger.info("Skipping LLM Provider setup.")
 
-    # Default output profile
+    # 3. Output Profiles
     logger.info(
-        typer.style("\n--- 3. Set Output Profile ---", fg=typer.colors.CYAN, bold=True)
+        typer.style("\n--- 3. Output Profiles ---", fg=typer.colors.CYAN, bold=True)
     )
-    available_writer_types = list(WRITER_REGISTRY.keys())
-
-    for writer_type in available_writer_types:
-        if typer.confirm(
-            f"Would you like to add an output profile for '{writer_type}'?",
-            default=(writer_type == "markdown"),
-        ):
-            profile_name = typer.prompt(
-                f"\nProfile name for '{writer_type}' output (e.g., my_{writer_type}_output)"
-            )
-            params = {"type": writer_type}
-
-            if writer_type in ["markdown", "dbt-markdown", "json"]:
-                # These Writers require an output_filename.
-                default_name = f"catalog.{'json' if writer_type == 'json' else 'md'}"
-                params["output_filename"] = typer.prompt(
-                    "Output file name", default=default_name
-                )
-
-            elif writer_type == "confluence":
-                # ConfluenceWriter requires API connection info.
-                params["url"] = typer.prompt(
-                    "Confluence URL (e.g., https://your-domain.atlassian.net)"
-                )
-                params["space_key"] = typer.prompt("Confluence Space Key (e.g., DS)")
-                params["parent_page_id"] = typer.prompt(
-                    "Confluence Parent Page ID (numeric)"
-                )
-                params["page_title_prefix"] = typer.prompt(
-                    "Page title prefix", default="Data Scribe Catalog"
-                )
-                params["username"] = typer.prompt("Confluence Username (email)")
-
-                # Store Confluence API token securely in .env
-                if "CONFLUENCE_API_TOKEN" not in env_data:
-                    token = typer.prompt(
-                        "Confluence API Token (sensitive info)", hide_input=True
-                    )
-                    env_data["CONFLUENCE_API_TOKEN"] = token
-                # Store an environment variable reference in config.yaml
-                params["api_token"] = "${CONFLUENCE_API_TOKEN}"
-
-            config_data["output_profiles"][profile_name] = params
-
-    # Default
-    logger.info(typer.style("\n--- 4. Default ---", fg=typer.colors.CYAN, bold=True))
-    if config_data["db_connections"]:
-        db_profile_names = list(config_data["db_connections"].keys())
-        default_db = typer.prompt(
-            f"Select default DB profile: {db_profile_names}",
-            default=db_profile_names[0],
+    writer_type = _select_from_registry(WRITER_REGISTRY, "Output Profile")
+    if writer_type:
+        profile_name = typer.prompt(
+            f"\nProfile name for '{writer_type}' (e.g. my_{writer_type})"
         )
-        config_data["default"]["db"] = default_db
+        params = _prompt_writer_params(writer_type, profile_name, env_data)
+        config_data["output_profiles"][profile_name] = params
+        logger.info(f"Added Output profile: '{profile_name}'")
+    else:
+        logger.info("Skipping Output Profile setup.")
 
-    if config_data["llm_providers"]:
-        llm_profile_names = list(config_data["llm_providers"].keys())
-        default_llm = typer.prompt(
-            f"Select default LLM profile: {llm_profile_names}",
-            default=llm_profile_names[0],
-        )
-        config_data["default"]["llm"] = default_llm
-
-    # Write
+    # 4. Write Files
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             yaml.dump(
@@ -359,18 +394,20 @@ def init_config():
         )
 
         if env_data:
+            # Use 'a' (append) mode to avoid overwriting existing .env variables
             with open(ENV_FILE, "a", encoding="utf-8") as f:
                 f.write("\n# Added by data-scribe init\n")
                 for key, value in env_data.items():
                     f.write(f'{key}="{value}"\n')
             logger.info(
                 typer.style(
-                    f"Sensitive information has been added to the '{ENV_FILE}' file.",
+                    f"Sensitive information added to '{ENV_FILE}'.",
                     fg=typer.colors.GREEN,
                     bold=True,
                 )
             )
+            logger.info(f"Remember to keep your .env file secure and out of git.")
 
     except Exception as e:
-        logger.error(f"Failed to write configuration file: {e}")
+        logger.error(f"Failed to write configuration file(s): {e}", exc_info=True)
         raise typer.Exit(code=1)
