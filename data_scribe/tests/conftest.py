@@ -21,11 +21,17 @@ def mock_llm_client(mocker):
     `get_description` method is set to return a predictable, fixed string.
     """
     mock_client = MagicMock()
-    mock_client.get_description.return_value = "This is an AI-generated description."
+    mock_client.get_description.return_value = (
+        "This is an AI-generated description."
+    )
 
     # Patch the init_llm function where it's used in the workflows
-    mocker.patch("data_scribe.core.db_workflow.init_llm", return_value=mock_client)
-    mocker.patch("data_scribe.core.dbt_workflow.init_llm", return_value=mock_client)
+    mocker.patch(
+        "data_scribe.core.db_workflow.init_llm", return_value=mock_client
+    )
+    mocker.patch(
+        "data_scribe.core.dbt_workflow.init_llm", return_value=mock_client
+    )
 
     return mock_client
 
@@ -49,7 +55,10 @@ def test_config(tmp_path):
             "default": {"db": "test_db", "llm": "test_llm"},
             "db_connections": {
                 "test_db": {"type": "sqlite", "path": str(db_path)},
-                "duckdb_test": {"type": "duckdb", "path": "s3://bucket/some.csv"},
+                "duckdb_test": {
+                    "type": "duckdb",
+                    "path": "s3://bucket/some.csv",
+                },
             },
             "llm_providers": {
                 "test_llm": {"provider": "openai", "model": "gpt-4"},
@@ -93,7 +102,9 @@ def sqlite_db(tmp_path):
     cursor = conn.cursor()
 
     # Create tables
-    cursor.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
+    cursor.execute(
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"
+    )
     cursor.execute(
         "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)"
     )

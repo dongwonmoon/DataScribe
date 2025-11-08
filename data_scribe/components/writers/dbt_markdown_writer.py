@@ -67,7 +67,9 @@ class DbtMarkdownWriter(BaseWriter):
 
                     # Write the header for the column details table
                     f.write("### Column Details\n")
-                    f.write("| Column Name | Data Type | AI-Generated Description |\n")
+                    f.write(
+                        "| Column Name | Data Type | AI-Generated Description |\n"
+                    )
                     f.write("| :--- | :--- | :--- |\n")
 
                     columns = model_data.get("columns", [])
@@ -83,7 +85,9 @@ class DbtMarkdownWriter(BaseWriter):
                         description = ai_data.get(
                             "description", "(AI description failed)"
                         )
-                        f.write(f"| `{col_name}` | `{col_type}` | {description} |\n")
+                        f.write(
+                            f"| `{col_name}` | `{col_type}` | {description} |\n"
+                        )
 
             logger.info("Finished writing dbt catalog file.")
         except IOError as e:
@@ -91,4 +95,6 @@ class DbtMarkdownWriter(BaseWriter):
                 f"Error writing to file '{output_filename}': {e}", exc_info=True
             )
             # Re-raise the exception to be handled by the CLI
-            raise WriterError(f"Error writing to file '{output_filename}': {e}") from e
+            raise WriterError(
+                f"Error writing to file '{output_filename}': {e}"
+            ) from e

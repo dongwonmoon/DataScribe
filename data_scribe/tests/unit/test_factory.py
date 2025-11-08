@@ -25,7 +25,9 @@ def test_get_db_connector_supported():
     Tests that get_db_connector returns a correct connector instance for a supported type.
     """
     # Mock the connect method to prevent actual database connections
-    with patch.object(SQLiteConnector, "connect", return_value=None) as mock_connect:
+    with patch.object(
+        SQLiteConnector, "connect", return_value=None
+    ) as mock_connect:
         connector = get_db_connector("sqlite", {"path": ":memory:"})
         assert isinstance(connector, SQLiteConnector)
         assert isinstance(connector, BaseConnector)
@@ -36,7 +38,9 @@ def test_get_db_connector_unsupported():
     """
     Tests that get_db_connector raises a ValueError for an unsupported type.
     """
-    with pytest.raises(ValueError, match="Unsupported database connector type: athena"):
+    with pytest.raises(
+        ValueError, match="Unsupported database connector type: athena"
+    ):
         get_db_connector("athena", {})
 
 
@@ -45,7 +49,9 @@ def test_get_llm_client_supported():
     Tests that get_llm_client returns a correct client instance for a supported type.
     """
     # Mock the OpenAI client's internal initialization
-    with patch("data_scribe.components.llm_clients.openai_client.OpenAI") as mock_openai:
+    with patch(
+        "data_scribe.components.llm_clients.openai_client.OpenAI"
+    ) as mock_openai:
         # Mock the settings to provide a dummy API key
         with patch(
             "data_scribe.components.llm_clients.openai_client.settings"

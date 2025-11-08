@@ -26,6 +26,7 @@ from data_scribe.core.exceptions import ConnectorError
 
 # --- SQLiteConnector Tests (using a real temporary database) ---
 
+
 def test_sqlite_connector_integration(sqlite_db):
     """
     Tests the full lifecycle of the SQLiteConnector with a real temp database.
@@ -53,12 +54,16 @@ def test_sqlite_connector_integration(sqlite_db):
     assert len(fks) == 2
     # Check for presence of FKs regardless of order
     expected_fk1 = {
-        "from_table": "orders", "to_table": "users",
-        "from_column": "user_id", "to_column": "id"
+        "from_table": "orders",
+        "to_table": "users",
+        "from_column": "user_id",
+        "to_column": "id",
     }
     expected_fk2 = {
-        "from_table": "orders", "to_table": "products",
-        "from_column": "product_id", "to_column": "id"
+        "from_table": "orders",
+        "to_table": "products",
+        "from_column": "product_id",
+        "to_column": "id",
     }
     assert expected_fk1 in fks or expected_fk2 in fks
 
@@ -68,22 +73,33 @@ def test_sqlite_connector_integration(sqlite_db):
 
 # --- PostgresConnector Tests (mocking psycopg2) ---
 
+
 @patch("data_scribe.components.db_connectors.postgres_connector.psycopg2")
 def test_postgres_connector_connect(mock_psycopg2):
     """Tests that PostgresConnector calls psycopg2.connect with correct params."""
     connector = PostgresConnector()
     db_params = {
-        "host": "localhost", "port": 5432, "user": "admin",
-        "password": "pw", "dbname": "testdb", "schema": "public",
+        "host": "localhost",
+        "port": 5432,
+        "user": "admin",
+        "password": "pw",
+        "dbname": "testdb",
+        "schema": "public",
     }
     connector.connect(db_params)
     mock_psycopg2.connect.assert_called_once_with(
-        host="localhost", port=5432, user="admin", password="pw", dbname="testdb"
+        host="localhost",
+        port=5432,
+        user="admin",
+        password="pw",
+        dbname="testdb",
     )
     assert connector.schema_name == "public"
 
 
-@patch("data_scribe.components.db_connectors.postgres_connector.psycopg2.connect")
+@patch(
+    "data_scribe.components.db_connectors.postgres_connector.psycopg2.connect"
+)
 def test_postgres_connector_connect_fails(mock_connect):
     """Tests that PostgresConnector raises ConnectorError on connection failure."""
     mock_connect.side_effect = psycopg2.Error("Connection failed")
@@ -94,22 +110,29 @@ def test_postgres_connector_connect_fails(mock_connect):
 
 # --- MariaDBConnector Tests (mocking mysql.connector) ---
 
+
 @patch("data_scribe.components.db_connectors.mariadb_connector.mysql.connector")
 def test_mariadb_connector_connect(mock_mysql_connector):
     """Tests that MariaDBConnector calls mysql.connector.connect with correct params."""
     connector = MariaDBConnector()
     db_params = {
-        "host": "remotehost", "user": "user",
-        "password": "pw", "dbname": "proddb",
+        "host": "remotehost",
+        "user": "user",
+        "password": "pw",
+        "dbname": "proddb",
     }
     connector.connect(db_params)
     mock_mysql_connector.connect.assert_called_once_with(
-        host="remotehost", user="user", password="pw",
-        database="proddb", port=3306
+        host="remotehost",
+        user="user",
+        password="pw",
+        database="proddb",
+        port=3306,
     )
 
 
 # --- DuckDBConnector Tests (mocking duckdb) ---
+
 
 @patch("data_scribe.components.db_connectors.duckdb_connector.duckdb")
 def test_duckdb_connector_connect_to_db_file(mock_duckdb):
@@ -117,7 +140,9 @@ def test_duckdb_connector_connect_to_db_file(mock_duckdb):
     connector = DuckDBConnector()
     db_params = {"path": "test.db"}
     connector.connect(db_params)
-    mock_duckdb.connect.assert_called_once_with(database="test.db", read_only=True)
+    mock_duckdb.connect.assert_called_once_with(
+        database="test.db", read_only=True
+    )
 
 
 @patch("data_scribe.components.db_connectors.duckdb_connector.duckdb")
@@ -126,7 +151,9 @@ def test_duckdb_connector_connect_to_other_file(mock_duckdb):
     connector = DuckDBConnector()
     db_params = {"path": "data.parquet"}
     connector.connect(db_params)
-    mock_duckdb.connect.assert_called_once_with(database=":memory:", read_only=False)
+    mock_duckdb.connect.assert_called_once_with(
+        database=":memory:", read_only=False
+    )
 
 
 @patch("data_scribe.components.db_connectors.duckdb_connector.duckdb")
@@ -137,7 +164,7 @@ def test_duckdb_get_tables_from_db_file(mock_duckdb):
     mock_duckdb.connect.return_value.cursor.return_value = mock_cursor
 
     connector = DuckDBConnector()
-    connector.connect({"path": "analytics.db"}) # .db file path
+    connector.connect({"path": "analytics.db"})  # .db file path
     tables = connector.get_tables()
 
     assert tables == ["table1", "table2"]
@@ -148,25 +175,36 @@ def test_duckdb_get_tables_from_db_file(mock_duckdb):
 def test_duckdb_get_tables_from_pattern(mock_duckdb):
     """Tests that DuckDBConnector's get_tables returns the pattern for non-db files."""
     connector = DuckDBConnector()
-    connector.connect({"path": "data/*.csv"}) # non-.db file path
+    connector.connect({"path": "data/*.csv"})  # non-.db file path
     tables = connector.get_tables()
     assert tables == ["data/*.csv"]
 
 
 # --- SnowflakeConnector Tests (mocking snowflake.connector) ---
 
-@patch("data_scribe.components.db_connectors.snowflake_connector.snowflake.connector")
+
+@patch(
+    "data_scribe.components.db_connectors.snowflake_connector.snowflake.connector"
+)
 def test_snowflake_connector_connect(mock_snowflake_connector):
     """Tests that SnowflakeConnector calls snowflake.connector.connect correctly."""
     connector = SnowflakeConnector()
     db_params = {
-        "user": "sf_user", "password": "sf_password", "account": "sf_account",
-        "database": "sf_db", "schema": "sf_schema", "warehouse": "sf_wh"
+        "user": "sf_user",
+        "password": "sf_password",
+        "account": "sf_account",
+        "database": "sf_db",
+        "schema": "sf_schema",
+        "warehouse": "sf_wh",
     }
     connector.connect(db_params)
     mock_snowflake_connector.connect.assert_called_once_with(
-        user="sf_user", password="sf_password", account="sf_account",
-        database="sf_db", schema="sf_schema", warehouse="sf_wh"
+        user="sf_user",
+        password="sf_password",
+        account="sf_account",
+        database="sf_db",
+        schema="sf_schema",
+        warehouse="sf_wh",
     )
     assert connector.schema_name == "sf_schema"
     assert connector.dbname == "sf_db"

@@ -56,7 +56,10 @@ class DbtYamlWriter:
                 continue
             for root, _, files in os.walk(path):
                 for file in files:
-                    if file.endswith((".yml", ".yaml")) and "dbt_project" not in file:
+                    if (
+                        file.endswith((".yml", ".yaml"))
+                        and "dbt_project" not in file
+                    ):
                         schema_files.append(os.path.join(root, file))
 
         logger.info(f"Found schema files to check: {schema_files}")
@@ -85,16 +88,22 @@ class DbtYamlWriter:
 
         for file_path in schema_files:
             try:
-                file_needs_update = self._update_single_file(file_path, catalog_data)
+                file_needs_update = self._update_single_file(
+                    file_path, catalog_data
+                )
                 if file_needs_update:
                     total_updates_needed = True
             except Exception as e:
-                logger.error(f"Error processing {file_path}: {e}", exc_info=True)
+                logger.error(
+                    f"Error processing {file_path}: {e}", exc_info=True
+                )
                 raise WriterError(f"Error processing {file_path}: {e}") from e
 
         return total_updates_needed
 
-    def _update_single_file(self, file_path: str, catalog_data: Dict[str, Any]) -> bool:
+    def _update_single_file(
+        self, file_path: str, catalog_data: Dict[str, Any]
+    ) -> bool:
         """Updates a single schema.yml file with AI-generated descriptions.
 
         This method reads a schema.yml file, finds the models defined in it,
@@ -133,7 +142,9 @@ class DbtYamlWriter:
                     # Update model-level description
                     ai_model_desc = ai_model_data.get("model_description")
                     if ai_model_desc and not node_config.get("description"):
-                        logger.info(f"- Updating model '{node_name}' with new description.")
+                        logger.info(
+                            f"- Updating model '{node_name}' with new description."
+                        )
                         node_config["description"] = ai_model_desc
                         file_updated = True
 
@@ -171,7 +182,9 @@ class DbtYamlWriter:
             try:
                 with open(file_path, "w", encoding="utf-8") as f:
                     self.yaml.dump(data, f)
-                logger.info(f"Successfully updated '{file_path}' with AI descriptions.")
+                logger.info(
+                    f"Successfully updated '{file_path}' with AI descriptions."
+                )
             except IOError as e:
                 logger.error(f"Failed to write updates to '{file_path}': {e}")
         else:

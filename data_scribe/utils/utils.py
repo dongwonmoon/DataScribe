@@ -1,6 +1,7 @@
 """
 This module contains general utility functions for the Data Scribe application.
 """
+
 import os
 import re
 import yaml

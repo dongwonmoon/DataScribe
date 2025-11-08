@@ -29,7 +29,11 @@ def mock_db_catalog_data():
                 "name": "users",
                 "columns": [
                     {"name": "id", "type": "INTEGER", "description": "User ID"},
-                    {"name": "email", "type": "TEXT", "description": "User email"},
+                    {
+                        "name": "email",
+                        "type": "TEXT",
+                        "description": "User email",
+                    },
                 ],
             }
         ],
@@ -62,7 +66,9 @@ def mock_dbt_catalog_data():
                 {
                     "name": "customer_id",
                     "type": "int",
-                    "ai_generated": {"description": "Primary key for customers."},
+                    "ai_generated": {
+                        "description": "Primary key for customers."
+                    },
                 }
             ],
         }
@@ -70,6 +76,7 @@ def mock_dbt_catalog_data():
 
 
 # --- MarkdownWriter Tests ---
+
 
 def test_markdown_writer_write(tmp_path, mock_db_catalog_data):
     """Tests that MarkdownWriter correctly writes a catalog to a .md file."""
@@ -98,6 +105,7 @@ def test_markdown_writer_write(tmp_path, mock_db_catalog_data):
 
 # --- JsonWriter Tests ---
 
+
 def test_json_writer_write(tmp_path, mock_db_catalog_data):
     """Tests that JsonWriter correctly writes a catalog to a .json file."""
     output_file = tmp_path / "catalog.json"
@@ -113,6 +121,7 @@ def test_json_writer_write(tmp_path, mock_db_catalog_data):
 
 # --- DbtYamlWriter Tests ---
 
+
 @pytest.fixture
 def dbt_project(tmp_path):
     """Creates a temporary dbt project structure with a schema.yml file."""
@@ -125,7 +134,9 @@ def dbt_project(tmp_path):
         "models": [
             {
                 "name": "customers",
-                "columns": [{"name": "customer_id", "tests": ["unique", "not_null"]}],
+                "columns": [
+                    {"name": "customer_id", "tests": ["unique", "not_null"]}
+                ],
             }
         ],
     }
@@ -144,7 +155,9 @@ def test_dbt_yaml_writer_update(dbt_project):
             "columns": [
                 {
                     "name": "customer_id",
-                    "ai_generated": {"description": "This is a new column description."},
+                    "ai_generated": {
+                        "description": "This is a new column description."
+                    },
                 }
             ],
             "model_description": "This is a new model description.",
@@ -170,7 +183,10 @@ def test_dbt_yaml_writer_check_mode_no_changes(dbt_project):
     writer = DbtYamlWriter(dbt_project_dir=dbt_project, check_mode=True)
     # Catalog data matches the existing schema.yml (no descriptions to add)
     catalog = {
-        "customers": {"model_description": None, "columns": [{"name": "customer_id", "ai_generated": {}}]}
+        "customers": {
+            "model_description": None,
+            "columns": [{"name": "customer_id", "ai_generated": {}}],
+        }
     }
     updates_needed = writer.update_yaml_files(catalog)
     assert not updates_needed
@@ -180,7 +196,9 @@ def test_dbt_yaml_writer_check_mode_changes_needed(dbt_project):
     """Tests check mode when changes are needed."""
     writer = DbtYamlWriter(dbt_project_dir=dbt_project, check_mode=True)
     # Catalog data has new descriptions to add
-    catalog = {"customers": {"model_description": "A new description.", "columns": []}}
+    catalog = {
+        "customers": {"model_description": "A new description.", "columns": []}
+    }
     updates_needed = writer.update_yaml_files(catalog)
     assert updates_needed
 
@@ -190,24 +208,33 @@ def test_dbt_yaml_writer_malformed_yaml(dbt_project):
     # Overwrite the existing schema.yml with invalid content
     schema_file = f"{dbt_project}/models/schema.yml"
     with open(schema_file, "w") as f:
-        f.write("models: - name: customers\n  - name: orders")  # Invalid YAML indentation
+        f.write(
+            "models: - name: customers\n  - name: orders"
+        )  # Invalid YAML indentation
 
     writer = DbtYamlWriter(dbt_project_dir=dbt_project)
     catalog = {
         "customers": {"model_description": "A description.", "columns": []}
     }
 
-    with pytest.raises(WriterError, match=f"Failed to parse YAML file: {schema_file}"):
+    with pytest.raises(
+        WriterError, match=f"Failed to parse YAML file: {schema_file}"
+    ):
         writer.update_yaml_files(catalog)
 
 
 # --- ConfluenceWriter Tests ---
 
+
 @patch("data_scribe.components.writers.confluence_writer.Confluence")
-def test_confluence_writer_db_write(mock_confluence_constructor, mock_db_catalog_data):
+def test_confluence_writer_db_write(
+    mock_confluence_constructor, mock_db_catalog_data
+):
     """Tests that ConfluenceWriter correctly handles standard DB catalog data."""
     mock_confluence_instance = MagicMock()
-    mock_confluence_instance.get_page_id.return_value = "123456"  # Simulate page exists
+    mock_confluence_instance.get_page_id.return_value = (
+        "123456"  # Simulate page exists
+    )
     mock_confluence_constructor.return_value = mock_confluence_instance
 
     writer = ConfluenceWriter()
@@ -230,10 +257,14 @@ def test_confluence_writer_db_write(mock_confluence_constructor, mock_db_catalog
 
 
 @patch("data_scribe.components.writers.confluence_writer.Confluence")
-def test_confluence_writer_dbt_write(mock_confluence_constructor, mock_dbt_catalog_data):
+def test_confluence_writer_dbt_write(
+    mock_confluence_constructor, mock_dbt_catalog_data
+):
     """Tests that ConfluenceWriter correctly handles dbt catalog data."""
     mock_confluence_instance = MagicMock()
-    mock_confluence_instance.get_page_id.return_value = "789012"  # Simulate page exists
+    mock_confluence_instance.get_page_id.return_value = (
+        "789012"  # Simulate page exists
+    )
     mock_confluence_constructor.return_value = mock_confluence_instance
 
     writer = ConfluenceWriter()
@@ -253,5 +284,3 @@ def test_confluence_writer_dbt_write(mock_confluence_constructor, mock_dbt_catal
     body = call_kwargs["body"]
     assert "<h1>🧬 Data Catalog for test_dbt_project (dbt)</h1>" in body
     assert "<h2>🚀 Model: <code>customers</code></h2>" in body
-
-

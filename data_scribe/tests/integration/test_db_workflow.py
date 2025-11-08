@@ -28,9 +28,7 @@ def test_db_workflow_end_to_end(
     """
     # Arrange
     output_md_path = tmp_path / "db_catalog.md"
-    config_path = test_config(
-        db_path=sqlite_db, output_md_path=output_md_path
-    )
+    config_path = test_config(db_path=sqlite_db, output_md_path=output_md_path)
 
     # Act
     workflow = DbWorkflow(
@@ -51,8 +49,12 @@ def test_db_workflow_end_to_end(
 
     # 3. Check for table and column names
     assert "### 📄 Table: `users`" in content
-    assert "| `id` | `INTEGER` | This is an AI-generated description. |" in content
-    assert "| `email` | `TEXT` | This is an AI-generated description. |" in content
+    assert (
+        "| `id` | `INTEGER` | This is an AI-generated description. |" in content
+    )
+    assert (
+        "| `email` | `TEXT` | This is an AI-generated description. |" in content
+    )
 
     # 4. Check for view information
     assert "### 📄 View: `user_orders`" in content

@@ -37,7 +37,9 @@ class PostgresConnector(SqlBaseConnector):
         Raises:
             ConnectionError: If the connection to the database fails.
         """
-        logger.info(f"Connecting to PostgreSQL database with params: {db_params}")
+        logger.info(
+            f"Connecting to PostgreSQL database with params: {db_params}"
+        )
         try:
             self.schema_name = db_params.get("schema", "public")
             self.dbname = db_params.get("dbname")

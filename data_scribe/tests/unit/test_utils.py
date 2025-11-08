@@ -16,6 +16,7 @@ from data_scribe.core.exceptions import ConfigError
 
 # --- Tests for expand_env_vars ---
 
+
 def test_expand_env_vars_success():
     """Tests that environment variables are correctly expanded."""
     content = "password: ${TEST_DB_PASSWORD}"
@@ -42,7 +43,9 @@ def test_expand_env_vars_missing_variable_raises_error():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(ConfigError) as excinfo:
             expand_env_vars(content)
-        assert "Environment variable 'MISSING_VAR' is not set" in str(excinfo.value)
+        assert "Environment variable 'MISSING_VAR' is not set" in str(
+            excinfo.value
+        )
 
 
 def test_expand_env_vars_no_vars():
@@ -53,6 +56,7 @@ def test_expand_env_vars_no_vars():
 
 
 # --- Tests for load_config ---
+
 
 def test_load_config_success_with_env_vars(tmp_path):
     """

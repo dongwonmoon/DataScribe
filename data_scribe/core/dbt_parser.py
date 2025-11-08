@@ -30,7 +30,7 @@ class DbtManifestParser:
         Args:
             dbt_project_dir: The root directory of the dbt project, where the 'target'
                              directory and 'manifest.json' are located.
-        
+
         Raises:
             DbtParseError: If the manifest.json file cannot be found or parsed.
         """
@@ -80,7 +80,9 @@ class DbtManifestParser:
         for node_name, node_data in nodes.items():
             if node_data.get("resource_type") == "model":
                 # The description can be in the 'description' field or under 'config'
-                description = node_data.get("description") or node_data.get("config", {}).get("description", "")
+                description = node_data.get("description") or node_data.get(
+                    "config", {}
+                ).get("description", "")
 
                 parsed_columns = []
                 for col_name, col_data in node_data.get("columns", {}).items():
@@ -97,10 +99,15 @@ class DbtManifestParser:
                         "name": node_data.get("name"),
                         "unique_id": node_name,
                         "description": description,
-                        "raw_sql": node_data.get("raw_code") or node_data.get("raw_sql", "-- SQL code not available --"),
+                        "raw_sql": node_data.get("raw_code")
+                        or node_data.get(
+                            "raw_sql", "-- SQL code not available --"
+                        ),
                         "columns": parsed_columns,
                         "path": node_data.get("path"),
-                        "original_file_path": node_data.get("original_file_path"),
+                        "original_file_path": node_data.get(
+                            "original_file_path"
+                        ),
                     }
                 )
 

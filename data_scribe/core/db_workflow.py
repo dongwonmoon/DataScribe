@@ -4,6 +4,7 @@ This module defines the workflow for the 'db' command.
 It encapsulates the logic for connecting to a database, generating a catalog,
 and writing the output, orchestrated by the `DbWorkflow` class.
 """
+
 import typer
 
 from data_scribe.core.factory import get_db_connector, get_writer
@@ -48,12 +49,12 @@ class DbWorkflow:
     def run(self):
         """Executes the database scanning and documentation workflow."""
         # Determine which database and LLM profiles to use
-        db_profile_name = self.db_profile_name or self.config.get("default", {}).get(
-            "db"
-        )
-        llm_profile_name = self.llm_profile_name or self.config.get("default", {}).get(
-            "llm"
-        )
+        db_profile_name = self.db_profile_name or self.config.get(
+            "default", {}
+        ).get("db")
+        llm_profile_name = self.llm_profile_name or self.config.get(
+            "default", {}
+        ).get("llm")
 
         if not db_profile_name or not llm_profile_name:
             logger.error(
@@ -81,11 +82,16 @@ class DbWorkflow:
             return
 
         try:
-            writer_params = self.config["output_profiles"][self.output_profile_name]
+            writer_params = self.config["output_profiles"][
+                self.output_profile_name
+            ]
             writer_type = writer_params.pop("type")
             writer = get_writer(writer_type)
 
-            writer_kwargs = {"db_profile_name": db_profile_name, **writer_params}
+            writer_kwargs = {
+                "db_profile_name": db_profile_name,
+                **writer_params,
+            }
             writer.write(catalog, **writer_kwargs)
             logger.info(
                 f"Catalog written successfully using output profile: '{self.output_profile_name}'."

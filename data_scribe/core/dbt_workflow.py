@@ -4,6 +4,7 @@ This module defines the workflow for the 'dbt' command.
 It encapsulates the logic for parsing a dbt project, generating a catalog,
 and writing or updating dbt documentation, orchestrated by the `DbtWorkflow` class.
 """
+
 import typer
 from data_scribe.core.factory import get_writer
 from data_scribe.core.dbt_catalog_generator import DbtCatalogGenerator
@@ -56,13 +57,17 @@ class DbtWorkflow:
 
     def run(self):
         """Executes the dbt scanning and documentation workflow."""
-        llm_profile_name = self.llm_profile_name or self.config.get("default", {}).get(
-            "llm"
-        )
+        llm_profile_name = self.llm_profile_name or self.config.get(
+            "default", {}
+        ).get("llm")
         llm_client = init_llm(self.config, llm_profile_name)
 
-        logger.info(f"Generating dbt catalog for project: {self.dbt_project_dir}")
-        catalog = DbtCatalogGenerator(llm_client).generate_catalog(self.dbt_project_dir)
+        logger.info(
+            f"Generating dbt catalog for project: {self.dbt_project_dir}"
+        )
+        catalog = DbtCatalogGenerator(llm_client).generate_catalog(
+            self.dbt_project_dir
+        )
 
         if self.check:
             logger.info("Running in --check mode (CI mode)...")
@@ -78,16 +83,24 @@ class DbtWorkflow:
                 )
                 raise typer.Exit(code=1)
             else:
-                logger.info("CI CHECK PASSED: All dbt documentation is up-to-date.")
+                logger.info(
+                    "CI CHECK PASSED: All dbt documentation is up-to-date."
+                )
 
         if self.update_yaml:
-            logger.info("Updating dbt schema.yml files with AI-generated content...")
+            logger.info(
+                "Updating dbt schema.yml files with AI-generated content..."
+            )
             DbtYamlWriter(self.dbt_project_dir).update_yaml_files(catalog)
             logger.info("dbt schema.yml update process complete.")
         elif self.output_profile_name:
             try:
-                logger.info(f"Using output profile: '{self.output_profile_name}'")
-                writer_params = self.config["output_profiles"][self.output_profile_name]
+                logger.info(
+                    f"Using output profile: '{self.output_profile_name}'"
+                )
+                writer_params = self.config["output_profiles"][
+                    self.output_profile_name
+                ]
                 writer_type = writer_params.pop("type")
                 writer = get_writer(writer_type)
 

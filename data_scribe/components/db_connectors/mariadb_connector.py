@@ -42,7 +42,9 @@ class MariaDBConnector(SqlBaseConnector):
             self.dbname = db_params.get("dbname")
             self.schema_name = self.dbname
             if not self.dbname:
-                raise ValueError("'dbname' (database name) parameter is required.")
+                raise ValueError(
+                    "'dbname' (database name) parameter is required."
+                )
 
             self.connection = mysql.connector.connect(
                 host=db_params.get("host", "localhost"),
@@ -52,7 +54,9 @@ class MariaDBConnector(SqlBaseConnector):
                 database=self.dbname,  # Use 'database' key
             )
             self.cursor = self.connection.cursor()
-            logger.info(f"Successfully connected to MariaDB/MySQL DB '{self.dbname}'.")
+            logger.info(
+                f"Successfully connected to MariaDB/MySQL DB '{self.dbname}'."
+            )
         except mysql.connector.Error as e:
             logger.error(f"MariaDB/MySQL connection failed: {e}", exc_info=True)
             raise ConnectorError(f"MariaDB/MySQL connection failed: {e}") from e

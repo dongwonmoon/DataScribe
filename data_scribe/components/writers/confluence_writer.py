@@ -132,10 +132,14 @@ class ConfluenceWriter(BaseWriter):
                 )
             logger.info("Successfully updated the Confluence page.")
         except Exception as e:
-            logger.error(f"Failed to write to Confluence page: {e}", exc_info=True)
+            logger.error(
+                f"Failed to write to Confluence page: {e}", exc_info=True
+            )
             raise WriterError(f"Failed to write to Confluence page: {e}")
 
-    def _generate_html(self, catalog_data: Dict[str, Any], project_name: str) -> str:
+    def _generate_html(
+        self, catalog_data: Dict[str, Any], project_name: str
+    ) -> str:
         """
         Dynamically generates an HTML representation of the catalog data.
 
@@ -152,7 +156,9 @@ class ConfluenceWriter(BaseWriter):
         """
         # The presence of 'db_profile_name' indicates a database scan
         if "db_profile_name" in self.params:
-            return self._generate_db_html(catalog_data, self.params["db_profile_name"])
+            return self._generate_db_html(
+                catalog_data, self.params["db_profile_name"]
+            )
         else:
             return self._generate_dbt_html(catalog_data, project_name)
 
@@ -175,7 +181,9 @@ class ConfluenceWriter(BaseWriter):
         code.append("")
         for fk in foreign_keys:
             label = f"{fk['from_column']} → {fk['to_column']}"
-            code.append(f'  {fk["from_table"]} --> {fk["to_table"]} : "{label}"')
+            code.append(
+                f'  {fk["from_table"]} --> {fk["to_table"]} : "{label}"'
+            )
 
         return "\n".join(code)
 
@@ -207,7 +215,9 @@ class ConfluenceWriter(BaseWriter):
             for view in views:
                 html += f"<h3>📄 View: <code>{view['name']}</code></h3>"
                 html += "<h4>AI-Generated Summary</h4>"
-                html += f"<p>{view.get('ai_summary', '(No summary available)')}</p>"
+                html += (
+                    f"<p>{view.get('ai_summary', '(No summary available)')}</p>"
+                )
                 html += "<h4>SQL Definition</h4>"
                 html += f'<ac:structured-macro ac:name="code" ac:parameters-language="sql"><ac:plain-text-body><![CDATA[{view.get("definition", "N/A")}]]></ac:plain-text-body></ac:structured-macro>'
 
@@ -253,10 +263,14 @@ class ConfluenceWriter(BaseWriter):
 
             # Section for the AI-generated lineage chart using the Mermaid macro
             html += "<h3>AI-Generated Lineage (Mermaid)</h3>"
-            mermaid_code = model_data.get("model_lineage_chart", "graph TD; A[N/A];")
+            mermaid_code = model_data.get(
+                "model_lineage_chart", "graph TD; A[N/A];"
+            )
             # The Confluence macro requires the raw Mermaid code without fences
             mermaid_code = (
-                mermaid_code.replace("```mermaid", "").replace("```", "").strip()
+                mermaid_code.replace("```mermaid", "")
+                .replace("```", "")
+                .strip()
             )
             # Embed the Mermaid code within the Confluence macro structure
             html += f'<ac:structured-macro ac:name="mermaid"><ac:plain-text-body><![CDATA[{mermaid_code}]]></ac:plain-text-body></ac:structured-macro>'
@@ -267,7 +281,9 @@ class ConfluenceWriter(BaseWriter):
             html += "<th>Column Name</th><th>Data Type</th><th>AI-Generated Description</th>"
             html += "</tr></thead><tbody>"
             for col in model_data.get("columns", []):
-                description = col.get("ai_generated", {}).get("description", "(N/A)")
+                description = col.get("ai_generated", {}).get(
+                    "description", "(N/A)"
+                )
                 html += f"<tr><td><code>{col['name']}</code></td><td>{col['type']}</td><td>{description}</td></tr>"
             html += "</tbody></table>"
         return html

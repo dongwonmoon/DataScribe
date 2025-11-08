@@ -4,6 +4,7 @@ This module provides helper functions shared across different workflows.
 It includes functionality for loading and validating the main application configuration
 and for initializing the LLM client based on that configuration.
 """
+
 import typer
 import yaml
 

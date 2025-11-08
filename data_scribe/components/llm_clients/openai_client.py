@@ -69,6 +69,8 @@ class OpenAIClient(BaseLLMClient):
             logger.info("Successfully received description from OpenAI.")
             return description
         except Exception as e:
-            logger.error(f"Failed to generate AI description: {e}", exc_info=True)
+            logger.error(
+                f"Failed to generate AI description: {e}", exc_info=True
+            )
             # Return a fallback message if the API call fails
             raise LLMClientError(f"OpenAI API call failed: {e}") from e

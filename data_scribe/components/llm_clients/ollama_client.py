@@ -23,7 +23,9 @@ class OllamaClient(BaseLLMClient):
     a standardized way to generate text descriptions using Ollama's models.
     """
 
-    def __init__(self, model: str = "llama3", host: str = "http://localhost:11434"):
+    def __init__(
+        self, model: str = "llama3", host: str = "http://localhost:11434"
+    ):
         """
         Initializes the OllamaClient.
 
@@ -41,7 +43,9 @@ class OllamaClient(BaseLLMClient):
             self.client.pull(model)
             logger.info("Ollama client initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize Ollama client: {e}", exc_info=True)
+            logger.error(
+                f"Failed to initialize Ollama client: {e}", exc_info=True
+            )
             raise ConfigError(f"Failed to initialize Ollama client: {e}") from e
 
     def get_description(self, prompt: str, max_tokens: int) -> str:

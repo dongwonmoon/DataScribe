@@ -102,7 +102,8 @@ def test_dbt_workflow_update(dbt_project, config_for_dbt, mock_llm_client):
     model_def = data["models"][0]
     assert model_def["description"] == "This is an AI-generated description."
     assert (
-        model_def["columns"][0]["description"] == "This is an AI-generated description."
+        model_def["columns"][0]["description"]
+        == "This is an AI-generated description."
     )
     # Check that the LLM was called for the model and its columns
     assert mock_llm_client.get_description.call_count > 0
@@ -124,7 +125,9 @@ def test_dbt_workflow_check_fails(dbt_project, config_for_dbt, mock_llm_client):
     assert e.value.exit_code == 1
 
 
-def test_dbt_workflow_check_succeeds(dbt_project, config_for_dbt, mock_llm_client):
+def test_dbt_workflow_check_succeeds(
+    dbt_project, config_for_dbt, mock_llm_client
+):
     """Tests the --check flag when documentation is already up-to-date."""
     # Arrange: First, update the YAML to be compliant.
     update_workflow = DbtWorkflow(
@@ -151,4 +154,6 @@ def test_dbt_workflow_check_succeeds(dbt_project, config_for_dbt, mock_llm_clien
     try:
         check_workflow.run()
     except typer.Exit as e:
-        pytest.fail(f"--check mode failed unexpectedly with exit code {e.exit_code}")
+        pytest.fail(
+            f"--check mode failed unexpectedly with exit code {e.exit_code}"
+        )

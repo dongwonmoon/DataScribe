@@ -43,19 +43,23 @@ class DuckDBConnector(SqlBaseConnector):
         try:
             path = db_params.get("path")
             if not path:
-                raise ValueError("Missing 'path' parameter for DuckDBConnector.")
+                raise ValueError(
+                    "Missing 'path' parameter for DuckDBConnector."
+                )
 
             self.file_path_pattern = path
-            
+
             # For file-based queries (not a persistent .db file), we still use
             # an in-memory DB and query via `read_auto`.
             db_file = path if path.endswith((".db", ".duckdb")) else ":memory:"
-            
+
             # When querying files directly, read_only should be False to allow
             # extensions like httpfs to be installed if needed.
             read_only = db_file != ":memory:"
 
-            self.connection = duckdb.connect(database=db_file, read_only=read_only)
+            self.connection = duckdb.connect(
+                database=db_file, read_only=read_only
+            )
 
             if self.file_path_pattern.startswith("s3://"):
                 self.connection.execute("INSTALL httpfs; LOAD httpfs;")
@@ -76,7 +80,7 @@ class DuckDBConnector(SqlBaseConnector):
 
         # If we are in file-query mode, the "table" is the file path pattern
         if not self.file_path_pattern.endswith((".db", ".duckdb")):
-             return [self.file_path_pattern]
+            return [self.file_path_pattern]
 
         logger.info("Fetching tables and views from DuckDB.")
         self.cursor.execute("SHOW ALL TABLES;")
@@ -99,9 +103,9 @@ class DuckDBConnector(SqlBaseConnector):
                 "." in table_name or "/" in table_name
             ):
                 query = f"DESCRIBE SELECT * FROM read_auto('{table_name}');"
-            else: # Otherwise, assume it's a standard table/view name
-                query = f"DESCRIBE \"{table_name}\";"
-            
+            else:  # Otherwise, assume it's a standard table/view name
+                query = f'DESCRIBE "{table_name}";'
+
             self.cursor.execute(query)
             result = self.cursor.fetchall()
             columns = [{"name": col[0], "type": col[1]} for col in result]
@@ -110,5 +114,9 @@ class DuckDBConnector(SqlBaseConnector):
             return columns
 
         except Exception as e:
-            logger.error(f"Failed to fetch columns for {table_name}: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to fetch columns for {table_name}: {e}") from e
+            logger.error(
+                f"Failed to fetch columns for {table_name}: {e}", exc_info=True
+            )
+            raise ConnectorError(
+                f"Failed to fetch columns for {table_name}: {e}"
+            ) from e
