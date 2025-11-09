@@ -28,6 +28,7 @@ from data_scribe.components.writers import (
     JsonWriter,
     DbtMarkdownWriter,
     ConfluenceWriter,
+    PostgresCommentWriter,
 )
 from data_scribe.utils.logger import get_logger
 
@@ -62,6 +63,7 @@ WRITER_REGISTRY: Dict[str, Type[BaseWriter]] = {
     "dbt-markdown": DbtMarkdownWriter,
     "json": JsonWriter,
     "confluence": ConfluenceWriter,
+    "postgres-comment": PostgresCommentWriter,
 }
 
 
