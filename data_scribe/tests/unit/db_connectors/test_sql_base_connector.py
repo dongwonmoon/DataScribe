@@ -1,6 +1,7 @@
 """
 Unit tests for the SqlBaseConnector.
 """
+
 from unittest.mock import MagicMock
 from typing import Dict, Any
 

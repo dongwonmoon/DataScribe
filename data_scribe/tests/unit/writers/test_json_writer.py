@@ -1,6 +1,7 @@
 """
 Unit tests for the JsonWriter.
 """
+
 import pytest
 import json
 

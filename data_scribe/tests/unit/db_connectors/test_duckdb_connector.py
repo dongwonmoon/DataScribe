@@ -1,6 +1,7 @@
 """
 Unit tests for the DuckDBConnector.
 """
+
 from unittest.mock import patch, MagicMock
 
 from data_scribe.components.db_connectors import DuckDBConnector

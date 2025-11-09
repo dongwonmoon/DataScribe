@@ -1,6 +1,7 @@
 """
 Unit tests for the OllamaClient.
 """
+
 from unittest.mock import patch
 
 from data_scribe.components.llm_clients import OllamaClient

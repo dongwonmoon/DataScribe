@@ -1,6 +1,7 @@
 """
 Unit tests for the MariaDBConnector.
 """
+
 from unittest.mock import patch
 
 from data_scribe.components.db_connectors import MariaDBConnector

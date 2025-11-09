@@ -1,6 +1,7 @@
 """
 Unit tests for the OpenAIClient.
 """
+
 import pytest
 from unittest.mock import patch, MagicMock
 

@@ -1,6 +1,7 @@
 """
 Unit tests for the ConfluenceWriter.
 """
+
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -53,7 +54,9 @@ def mock_dbt_catalog_data():
                 {
                     "name": "customer_id",
                     "type": "int",
-                    "ai_generated": {"description": "Primary key for customers."},
+                    "ai_generated": {
+                        "description": "Primary key for customers."
+                    },
                 }
             ],
         }
@@ -61,10 +64,14 @@ def mock_dbt_catalog_data():
 
 
 @patch("data_scribe.components.writers.confluence_writer.Confluence")
-def test_confluence_writer_db_write(mock_confluence_constructor, mock_db_catalog_data):
+def test_confluence_writer_db_write(
+    mock_confluence_constructor, mock_db_catalog_data
+):
     """Tests that ConfluenceWriter correctly handles standard DB catalog data."""
     mock_confluence_instance = MagicMock()
-    mock_confluence_instance.get_page_id.return_value = "123456"  # Simulate page exists
+    mock_confluence_instance.get_page_id.return_value = (
+        "123456"  # Simulate page exists
+    )
     mock_confluence_constructor.return_value = mock_confluence_instance
 
     writer = ConfluenceWriter()
@@ -93,7 +100,9 @@ def test_confluence_writer_dbt_write(
 ):
     """Tests that ConfluenceWriter correctly handles dbt catalog data."""
     mock_confluence_instance = MagicMock()
-    mock_confluence_instance.get_page_id.return_value = "789012"  # Simulate page exists
+    mock_confluence_instance.get_page_id.return_value = (
+        "789012"  # Simulate page exists
+    )
     mock_confluence_constructor.return_value = mock_confluence_instance
 
     writer = ConfluenceWriter()

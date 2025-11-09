@@ -1,6 +1,7 @@
 """
 Unit tests for the MarkdownWriter.
 """
+
 import pytest
 
 from data_scribe.components.writers import MarkdownWriter
@@ -56,9 +57,7 @@ def test_markdown_writer_write(tmp_path, mock_db_catalog_data):
 
     assert "# 📁 Data Catalog for test_db" in content
     assert "## 🚀 Entity Relationship Diagram (ERD)" in content
-    assert (
-        "orders ||--o{ users" in content
-    )  # Mermaid erDiagram syntax
+    assert "orders ||--o{ users" in content  # Mermaid erDiagram syntax
     assert "## 🔎 Views" in content
     assert "### 📄 View: `user_views`" in content
     assert "> A summary of the view." in content

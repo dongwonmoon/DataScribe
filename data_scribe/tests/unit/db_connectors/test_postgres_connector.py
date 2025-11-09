@@ -1,6 +1,7 @@
 """
 Unit tests for the PostgresConnector.
 """
+
 import pytest
 from unittest.mock import patch
 import psycopg2

@@ -1,6 +1,7 @@
 """
 Unit tests for the SQLiteConnector.
 """
+
 from data_scribe.components.db_connectors import SQLiteConnector
 
 

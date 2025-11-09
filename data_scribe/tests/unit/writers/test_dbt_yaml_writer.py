@@ -1,6 +1,7 @@
 """
 Unit tests for the DbtYamlWriter.
 """
+
 import pytest
 import os
 from ruamel.yaml import YAML
@@ -22,7 +23,9 @@ def dbt_project(tmp_path):
         "models": [
             {
                 "name": "customers",
-                "columns": [{"name": "customer_id", "tests": ["unique", "not_null"]}],
+                "columns": [
+                    {"name": "customer_id", "tests": ["unique", "not_null"]}
+                ],
             }
         ],
     }
@@ -84,7 +87,9 @@ def mock_catalog_for_stubs(dbt_project_for_stub_tests):
         "customers": {
             "model_description": "AI desc for customers",
             "model_lineage_chart": "...",
-            "original_file_path": os.path.join(base_path, "models", "customers.sql"),
+            "original_file_path": os.path.join(
+                base_path, "models", "customers.sql"
+            ),
             "columns": [
                 {
                     "name": "customer_id",
@@ -97,7 +102,9 @@ def mock_catalog_for_stubs(dbt_project_for_stub_tests):
         "new_model": {
             "model_description": "AI desc for new_model",
             "model_lineage_chart": "...",
-            "original_file_path": os.path.join(base_path, "models", "new_model.sql"),
+            "original_file_path": os.path.join(
+                base_path, "models", "new_model.sql"
+            ),
             "columns": [
                 {
                     "name": "new_id",
@@ -168,13 +175,17 @@ def test_dbt_yaml_writer_check_mode_no_changes(dbt_project):
     updates_needed = writer.update_yaml_files(catalog)
     assert not updates_needed
 
+
 def test_dbt_yaml_writer_check_mode_changes_needed(dbt_project):
     """Tests check mode when changes are needed."""
     writer = DbtYamlWriter(dbt_project_dir=dbt_project, mode="check")
     # Catalog data has new descriptions to add
-    catalog = {"customers": {"model_description": "A new description.", "columns": []}}
+    catalog = {
+        "customers": {"model_description": "A new description.", "columns": []}
+    }
     updates_needed = writer.update_yaml_files(catalog)
     assert updates_needed
+
 
 def test_dbt_yaml_writer_malformed_yaml(dbt_project):
     """Tests that WriterError is raised for a malformed schema.yml."""
@@ -182,13 +193,17 @@ def test_dbt_yaml_writer_malformed_yaml(dbt_project):
     schema_file = f"{dbt_project}/models/schema.yml"
     with open(schema_file, "w") as f:
         f.write(
-            "models: - name: customers\n  - name: orders" 
+            "models: - name: customers\n  - name: orders"
         )  # Invalid YAML indentation
 
     writer = DbtYamlWriter(dbt_project_dir=dbt_project)
-    catalog = {"customers": {"model_description": "A description.", "columns": []}}
+    catalog = {
+        "customers": {"model_description": "A description.", "columns": []}
+    }
 
-    with pytest.raises(WriterError, match=f"Failed to parse YAML file: {schema_file}"):
+    with pytest.raises(
+        WriterError, match=f"Failed to parse YAML file: {schema_file}"
+    ):
         writer.update_yaml_files(catalog)
 
 
@@ -216,7 +231,9 @@ def test_dbt_writer_stub_creation_update_mode(
     with open(root_schema_path, "r") as f:
         root_data = yaml.load(f)
 
-    assert len(root_data["models"]) == 2, "Should contain 'customers' and 'new_model'"
+    assert (
+        len(root_data["models"]) == 2
+    ), "Should contain 'customers' and 'new_model'"
 
     # Assert 1 (Update)
     customers_def = root_data["models"][0]
@@ -224,7 +241,9 @@ def test_dbt_writer_stub_creation_update_mode(
     assert (
         customers_def["description"] == "This is an old description."
     )  # Not overwritten
-    assert customers_def["columns"][0]["description"] == "AI desc for id"  # Was added
+    assert (
+        customers_def["columns"][0]["description"] == "AI desc for id"
+    )  # Was added
 
     # Assert 2 (Append)
     new_model_def = root_data["models"][1]
@@ -234,7 +253,9 @@ def test_dbt_writer_stub_creation_update_mode(
     assert new_model_def["columns"][0]["description"] == "AI desc for new_id"
 
     # --- Assert 3: Check 'models/staging/schema.yml' (Create) ---
-    staging_schema_path = os.path.join(project_dir, "models", "staging", "schema.yml")
+    staging_schema_path = os.path.join(
+        project_dir, "models", "staging", "schema.yml"
+    )
     assert os.path.exists(staging_schema_path), "New schema.yml was not created"
 
     with open(staging_schema_path, "r") as f:
@@ -247,6 +268,7 @@ def test_dbt_writer_stub_creation_update_mode(
     assert stg_orders_def["name"] == "stg_orders"
     assert stg_orders_def["description"] == "AI desc for stg_orders"
     assert stg_orders_def["columns"][0]["description"] == "AI desc for order_id"
+
 
 def test_dbt_writer_stub_creation_check_mode(
     dbt_project_for_stub_tests, mock_catalog_for_stubs
@@ -262,10 +284,14 @@ def test_dbt_writer_stub_creation_check_mode(
     updates_needed = writer.update_yaml_files(mock_catalog_for_stubs)
 
     # --- Assert 1: Changes are needed ---
-    assert updates_needed is True, "Should detect missing descriptions and models"
+    assert (
+        updates_needed is True
+    ), "Should detect missing descriptions and models"
 
     # --- Assert 2: No files were created ---
-    staging_schema_path = os.path.join(project_dir, "models", "staging", "schema.yml")
+    staging_schema_path = os.path.join(
+        project_dir, "models", "staging", "schema.yml"
+    )
     assert not os.path.exists(
         staging_schema_path
     ), "File should not be created in check mode"
@@ -310,11 +336,15 @@ def test_dbt_writer_stub_creation_interactive_mode(
     with open(root_schema_path, "r") as f:
         root_data = yaml.load(f)
     assert len(root_data["models"]) == 2
-    assert root_data["models"][0]["columns"][0]["description"] == "AI desc for id"
+    assert (
+        root_data["models"][0]["columns"][0]["description"] == "AI desc for id"
+    )
     assert root_data["models"][1]["name"] == "new_model"
 
     # Check 'models/staging/schema.yml'
-    staging_schema_path = os.path.join(project_dir, "models", "staging", "schema.yml")
+    staging_schema_path = os.path.join(
+        project_dir, "models", "staging", "schema.yml"
+    )
     assert os.path.exists(staging_schema_path)
     with open(staging_schema_path, "r") as f:
         staging_data = yaml.load(f)

@@ -1,6 +1,7 @@
 """
 Unit tests for the GoogleGenAIClient.
 """
+
 import pytest
 from unittest.mock import patch, MagicMock
 
