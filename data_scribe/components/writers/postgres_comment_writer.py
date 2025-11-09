@@ -1,3 +1,11 @@
+"""
+This module provides a writer for pushing generated data catalog descriptions
+back into a PostgreSQL database as comments.
+
+It implements the `BaseWriter` interface and uses `COMMENT ON` SQL statements
+to update descriptions for tables, views, and columns directly within the database.
+"""
+
 from typing import Dict, Any
 
 from data_scribe.utils.logger import get_logger
@@ -12,7 +20,10 @@ logger = get_logger(__name__)
 class PostgresCommentWriter(BaseWriter):
     """
     Handles writing the generated catalog back to a PostgreSQL database
-    using COMMENT ON statements.
+    using `COMMENT ON` SQL statements.
+
+    This writer updates descriptions for tables, views, and columns directly
+    in the database's metadata. It requires an active `PostgresConnector` instance.
     """
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):
@@ -22,7 +33,16 @@ class PostgresCommentWriter(BaseWriter):
 
         Args:
             catalog_data: The dictionary containing the structured data catalog.
-            **kwargs: Expects 'db_connector' to be provided.
+            **kwargs: Additional writer-specific arguments. Expected to contain:
+                      - `db_connector` (PostgresConnector): An initialized and
+                        connected instance of `PostgresConnector`.
+
+        Raises:
+            ConfigError: If `db_connector` is missing from `kwargs` or is not
+                         an instance of `PostgresConnector`.
+            ConnectorError: If the provided `db_connector` is not connected.
+            WriterError: If an error occurs during the process of writing comments
+                         to the database.
         """
         logger.info("Starting to write comments back to PostgreSQL database...")
 
