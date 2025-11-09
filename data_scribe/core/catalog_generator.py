@@ -1,8 +1,9 @@
 """
-This module contains the core logic for generating a data catalog from a database.
+This module provides the core engine for generating data catalogs.
 
-It defines the CatalogGenerator class, which orchestrates the process of connecting to a database,
-fetching schema information, and using an LLM to generate descriptions for each column.
+The `CatalogGenerator` class uses a database connector to fetch schema metadata
+(tables, columns, views) and an LLM client to generate descriptive content,
+creating a comprehensive, enriched data catalog.
 """
 
 from typing import List, Dict, Any
@@ -21,28 +22,36 @@ logger = get_logger(__name__)
 
 class CatalogGenerator:
     """
-    Handles the core logic of generating a data catalog from a database.
+    Orchestrates the generation of a data catalog from a database schema.
 
-    This class orchestrates the process of scanning a database schema,
-    fetching table and column information, and using an LLM to generate
-    business-friendly descriptions for each column.
+    This class connects to a database via a `BaseConnector`, inspects its tables,
+    columns, and views, profiles the data, and then uses a `BaseLLMClient` to
+    generate business-friendly summaries and descriptions for these assets.
     """
 
     def __init__(self, db_connector: BaseConnector, llm_client: BaseLLMClient):
         """
-        Initializes the CatalogGenerator with a database connector and an LLM client.
+        Initializes the CatalogGenerator.
 
         Args:
-            db_connector: An instance of a class that implements the BaseConnector interface.
-            llm_client: An instance of a class that implements the BaseLLMClient interface.
+            db_connector: An initialized connector for the target database.
+            llm_client: An initialized client for the desired LLM provider.
         """
         self.db_connector = db_connector
         self.llm_client = llm_client
 
     def _format_profile_stats(self, profile_stats: Dict[str, Any]) -> str:
         """
-        Helper function to format column profiling stats into a string for the LLM prompt.
-        This provides the LLM with context about the column's data distribution.
+        Formats column profiling statistics into a string for an LLM prompt.
+
+        This creates a concise, readable summary of a column's data profile
+        to give the LLM better context for generating a description.
+
+        Args:
+            profile_stats: A dictionary of statistics from `get_column_profile`.
+
+        Returns:
+            A formatted string summarizing the column's profile.
         """
         context_lines = [
             f"- Null Ratio: {profile_stats.get('null_ratio', 'N/A')} (0.0 = no nulls)",
@@ -51,27 +60,31 @@ class CatalogGenerator:
         ]
         return "\n".join(context_lines)
 
-    def generate_catalog(
-        self, db_profile_name: str
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    def generate_catalog(self, db_profile_name: str) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Generates a data catalog by fetching schema information from the database
-        and enriching it with descriptions from an LLM.
+        Generates a complete data catalog for the connected database.
+
+        This method fetches all tables, views, and foreign keys, then iterates
+        through them to generate AI-powered summaries and descriptions.
 
         Args:
-            db_profile_name: The name of the database profile being used, for logging purposes.
+            db_profile_name: The name of the database profile being scanned,
+                             used for logging and context.
 
         Returns:
-            A dictionary representing the data catalog with the following structure:
+            A dictionary representing the complete, enriched data catalog.
+            The structure is as follows:
+            ```
             {
                 "tables": [
                     {
                         "name": "table_name",
+                        "ai_summary": "AI-generated summary of the table.",
                         "columns": [
                             {
-                                "name": "col_name",
-                                "type": "col_type",
-                                "description": "AI-generated description.",
+                                "name": "column_name",
+                                "type": "data_type",
+                                "description": "AI-generated column description.",
                                 "profile_stats": { ... }
                             },
                             ...
@@ -83,12 +96,13 @@ class CatalogGenerator:
                     {
                         "name": "view_name",
                         "definition": "CREATE VIEW ...",
-                        "ai_summary": "AI-generated summary."
+                        "ai_summary": "AI-generated summary of the view."
                     },
                     ...
                 ],
                 "foreign_keys": [ { ... } ]
             }
+            ```
         """
         catalog_data = {"tables": [], "views": [], "foreign_keys": []}
         logger.info(f"Fetching tables for database profile: {db_profile_name}")
@@ -137,9 +151,7 @@ class CatalogGenerator:
                 )
 
                 # Get the column description from the LLM client.
-                description = self.llm_client.get_description(
-                    prompt, max_tokens=50
-                )
+                description = self.llm_client.get_description(prompt, max_tokens=50)
 
                 enriched_columns.append(
                     {

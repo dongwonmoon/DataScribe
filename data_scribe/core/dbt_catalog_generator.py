@@ -23,18 +23,20 @@ logger = get_logger(__name__)
 
 class DbtCatalogGenerator:
     """
-    Parses a dbt manifest and uses an LLM to generate documentation.
+    Generates an AI-powered data catalog by parsing a dbt project's manifest.
 
-    This class is responsible for generating AI-powered descriptions for dbt models,
-    structured metadata (tags, tests) for columns, and Mermaid.js lineage charts.
+    This class reads the `manifest.json` file from a dbt project to understand
+    its models, columns, and dependencies. It then uses a `BaseLLMClient` to
+    generate model descriptions, structured column metadata (including tags,
+    tests, and PII status), and Mermaid.js lineage graphs.
     """
 
     def __init__(self, llm_client: BaseLLMClient):
         """
-        Initializes the DbtCatalogGenerator with an LLM client.
+        Initializes the DbtCatalogGenerator.
 
         Args:
-            llm_client: An instance of a class that implements the BaseLLMClient interface.
+            llm_client: An initialized client for the desired LLM provider.
         """
         self.llm_client = llm_client
         self.yaml_parser = YAML()
@@ -44,18 +46,22 @@ class DbtCatalogGenerator:
         """
         Orchestrates the generation of a dbt data catalog.
 
-        This method involves parsing the dbt manifest, iterating through the models,
-        and generating AI-based descriptions for models, columns, and model lineage.
+        This method parses the dbt manifest, iterates through all discovered
+        models, and generates AI-based documentation for each model and its
+        columns.
 
         Args:
-            dbt_project_dir: The root directory of the dbt project.
+            dbt_project_dir: The absolute path to the root of the dbt project,
+                             which contains the `dbt_project.yml` file.
 
         Returns:
-            A dictionary representing the data catalog, structured as follows:
+            A dictionary representing the data catalog, keyed by model name.
+            The structure is as follows:
+            ```
             {
                 "model_name": {
                     "model_description": "AI-generated model summary.",
-                    "model_lineage_chart": "```mermaid\n...\n```",
+                    "model_lineage_chart": "```mermaid\\n...\\n```",
                     "columns": [
                         {
                             "name": "column_name",
@@ -63,15 +69,17 @@ class DbtCatalogGenerator:
                             "ai_generated": {
                                 "description": "AI-generated column description.",
                                 "meta": { "pii": True/False },
-                                "tags": [ ... ],
-                                "tests": [ ... ]
+                                "tags": [ "tag1", "tag2" ],
+                                "tests": [ "unique", "not_null" ]
                             }
                         },
                         ...
-                    ]
+                    ],
+                    "original_file_path": "/path/to/model.sql"
                 },
                 ...
             }
+            ```
         """
         logger.info(f"dbt catalog generation started for {dbt_project_dir}")
         # Initialize the manifest parser and extract dbt models.
@@ -126,9 +134,7 @@ class DbtCatalogGenerator:
                 try:
                     ai_data_dict = self.yaml_parser.load(yaml_snippet_str)
                     if not isinstance(ai_data_dict, dict):
-                        raise ValueError(
-                            "AI did not return a valid YAML mapping."
-                        )
+                        raise ValueError("AI did not return a valid YAML mapping.")
                 except Exception as e:
                     logger.error(
                         f"AI YAML snippet parsing failed for {model_name}.{col_name}: {e}"
@@ -149,6 +155,7 @@ class DbtCatalogGenerator:
                 "model_description": model_description,
                 "model_lineage_chart": mermaid_chart_block,
                 "columns": enriched_columns,
+                "original_file_path": model["original_file_path"],
             }
 
         logger.info("dbt catalog generation finished.")

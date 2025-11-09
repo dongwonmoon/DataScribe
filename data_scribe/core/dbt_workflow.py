@@ -49,6 +49,7 @@ class DbtWorkflow:
             output_profile: The name of the output profile to use.
             update_yaml: Flag to update dbt schema.yml files directly.
             check: Flag to run in CI mode to check for outdated documentation.
+            interactive: Flag to prompt the user for each AI-generated change.
         """
         self.dbt_project_dir = dbt_project_dir
         self.llm_profile_name = llm_profile
