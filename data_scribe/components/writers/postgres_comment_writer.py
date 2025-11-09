@@ -78,7 +78,9 @@ class PostgresCommentWriter(BaseWriter):
                     "'", "''"
                 )  # Basic SQL escaping
 
-                logger.info(f"  - Writing comment for VIEW: {schema_name}.{view_name}")
+                logger.info(
+                    f"  - Writing comment for VIEW: {schema_name}.{view_name}"
+                )
                 query = f'COMMENT ON VIEW "{schema_name}"."{view_name}" IS %s;'
                 cursor.execute(query, (description,))
 
@@ -103,6 +105,10 @@ class PostgresCommentWriter(BaseWriter):
             logger.info("Successfully wrote all comments to PostgreSQL.")
 
         except Exception as e:
-            logger.error(f"Error writing comments to PostgreSQL: {e}", exc_info=True)
+            logger.error(
+                f"Error writing comments to PostgreSQL: {e}", exc_info=True
+            )
             db_connector.connection.rollback()  # Rollback on failure
-            raise WriterError(f"Error writing comments to PostgreSQL: {e}") from e
+            raise WriterError(
+                f"Error writing comments to PostgreSQL: {e}"
+            ) from e

@@ -1,6 +1,7 @@
 """
 Unit tests for the PostgresCommentWriter.
 """
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -85,7 +86,9 @@ def test_postgres_comment_writer_write_success(
 def test_postgres_comment_writer_missing_db_connector():
     """Tests that ConfigError is raised if db_connector is missing."""
     writer = PostgresCommentWriter()
-    with pytest.raises(ConfigError, match="PostgresCommentWriter requires 'db_connector'"):
+    with pytest.raises(
+        ConfigError, match="PostgresCommentWriter requires 'db_connector'"
+    ):
         writer.write({}, some_other_arg="value")
 
 
@@ -94,7 +97,10 @@ def test_postgres_comment_writer_wrong_db_connector_type():
     writer = PostgresCommentWriter()
     mock_connector = MagicMock(spec=PostgresConnector)
     mock_connector.connection = None  # Simulate not connected
-    with pytest.raises(ConfigError, match="PostgresCommentWriter is only compatible with 'postgres'"):
+    with pytest.raises(
+        ConfigError,
+        match="PostgresCommentWriter is only compatible with 'postgres'",
+    ):
         writer.write({}, db_connector=MagicMock())  # Pass a generic mock
 
 
@@ -110,10 +116,14 @@ def test_postgres_comment_writer_db_error_rollback(
     mock_postgres_connector, mock_catalog_data
 ):
     """Tests that changes are rolled back on database error."""
-    mock_postgres_connector.cursor.execute.side_effect = Exception("DB write error")
+    mock_postgres_connector.cursor.execute.side_effect = Exception(
+        "DB write error"
+    )
 
     writer = PostgresCommentWriter()
-    with pytest.raises(WriterError, match="Error writing comments to PostgreSQL"):
+    with pytest.raises(
+        WriterError, match="Error writing comments to PostgreSQL"
+    ):
         writer.write(mock_catalog_data, db_connector=mock_postgres_connector)
 
     mock_postgres_connector.connection.commit.assert_not_called()
