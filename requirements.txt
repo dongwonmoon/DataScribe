@@ -101,33 +101,20 @@ google-api-core[grpc]==2.28.1
     # via
     #   google-ai-generativelanguage
     #   google-api-python-client
-    #   google-cloud-bigquery
-    #   google-cloud-core
     #   google-generativeai
 google-api-python-client==2.187.0
     # via google-generativeai
 google-auth==2.43.0
     # via
-    #   data-scribe (pyproject.toml)
     #   google-ai-generativelanguage
     #   google-api-core
     #   google-api-python-client
     #   google-auth-httplib2
-    #   google-cloud-bigquery
-    #   google-cloud-core
     #   google-generativeai
 google-auth-httplib2==0.2.1
     # via google-api-python-client
-google-cloud-bigquery==3.38.0
-    # via data-scribe (pyproject.toml)
-google-cloud-core==2.5.0
-    # via google-cloud-bigquery
-google-crc32c==1.7.1
-    # via google-resumable-media
 google-generativeai==0.8.5
     # via data-scribe (pyproject.toml)
-google-resumable-media==2.7.2
-    # via google-cloud-bigquery
 googleapis-common-protos==1.72.0
     # via
     #   google-api-core
@@ -148,6 +135,7 @@ httplib2==0.31.0
     #   google-auth-httplib2
 httpx==0.28.1
     # via
+    #   notion-client
     #   ollama
     #   openai
 idna==3.11
@@ -204,6 +192,8 @@ mysql-connector-python==9.5.0
     # via data-scribe (pyproject.toml)
 networkx==3.5
     # via dbt-core
+notion-client==2.7.0
+    # via data-scribe (pyproject.toml)
 oauthlib==3.3.1
     # via
     #   atlassian-python-api
@@ -217,7 +207,6 @@ ordered-set==4.1.0
 packaging==25.0
     # via
     #   dbt-core
-    #   google-cloud-bigquery
     #   pytest
     #   snowflake-connector-python
 parsedatetime==2.6
@@ -286,7 +275,6 @@ python-dateutil==2.9.0.post0
     #   botocore
     #   dbt-common
     #   dbt-semantic-interfaces
-    #   google-cloud-bigquery
 python-dotenv==1.2.1
     # via data-scribe (pyproject.toml)
 python-slugify==8.0.4
@@ -313,7 +301,6 @@ requests==2.32.5
     #   dbt-common
     #   dbt-core
     #   google-api-core
-    #   google-cloud-bigquery
     #   requests-oauthlib
     #   snowflake-connector-python
     #   snowplow-tracker
