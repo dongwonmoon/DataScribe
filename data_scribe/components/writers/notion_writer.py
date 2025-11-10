@@ -16,29 +16,30 @@ class NotionWriter(BaseWriter):
         logger.info("NotionWriter initialized")
 
     def _connect(self):
-        try:
-            token = self.params.get("api_token")
+        token = self.params.get("api_token")
 
-            if token and token.startswith("${") and token.endswith("}"):
-                env_var = token[2:-1]
-                token = os.getenv(env_var)
-                if not token:
-                    raise ConfigError(
-                        f"The environment variable '{env_var}' is required but not set."
-                    )
-
+        if token and token.startswith("${") and token.endswith("}"):
+            env_var = token[2:-1]
+            token = os.getenv(env_var)
             if not token:
                 raise ConfigError(
-                    "'api_token' (or env var) is required for NotionWriter."
+                    f"The environment variable '{env_var}' is required but not set."
                 )
 
+        if not token:
+            raise ConfigError(
+                "'api_token' (or env var) is required for NotionWriter."
+            )
+
+        try:
             self.notion = Client(auth=token)
             logger.info("Successfully connected to Notion API.")
-
+        
         except Exception as e:
+            # This now correctly catches only Client() initialization errors
             logger.error(f"Failed to connect to Notion: {e}", exc_info=True)
             raise ConnectionError(f"Failed to connect to Notion: {e}")
-
+        
     def write(self, catalog_data: Dict[str, Any], **kwargs):
         self.params = kwargs
         self._connect()
