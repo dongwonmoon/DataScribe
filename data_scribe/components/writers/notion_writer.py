@@ -287,11 +287,13 @@ class NotionWriter(BaseWriter):
         """
         header = {
             "type": "table_row",
-            "cells": [
-                self._text_cell("Column Name"),
-                self._text_cell("Data Type"),
-                self._text_cell("AI-Generated Description"),
-            ],
+            "table_row": {
+                "cells": [
+                    self._text_cell("Column Name"),
+                    self._text_cell("Data Type"),
+                    self._text_cell("AI-Generated Description"),
+                ]
+            }
         }
 
         rows = [header]
@@ -305,11 +307,13 @@ class NotionWriter(BaseWriter):
 
             row = {
                 "type": "table_row",
-                "cells": [
-                    self._text_cell(col.get("name")),
-                    self._text_cell(col.get("type")),
-                    self._text_cell(desc),
-                ],
+                "table_row": {
+                    "cells": [
+                        self._text_cell(col.get("name")),
+                        self._text_cell(col.get("type")),
+                        self._text_cell(desc),
+                    ],
+                }
             }
             rows.append(row)
 
