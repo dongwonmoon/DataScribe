@@ -275,6 +275,7 @@ def _prompt_writer_params(
 
     elif writer_type == "notion":
         params["parent_page_id"] = typer.prompt("Notion Parent Page ID")
+        params["project_name"] = typer.prompt("Project name")
         if "NOTION_API_TOKEN" not in env_data:
             token = typer.prompt(
                 "Notion API Token (sensitive)", hide_input=True

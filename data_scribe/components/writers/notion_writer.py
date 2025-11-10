@@ -48,7 +48,7 @@ class NotionWriter(BaseWriter):
             raise ConfigError("'parent_page_id' is required for NotionWriter.")
 
         project_name = kwargs.get(
-            "project_name", kwargs.get("db_profile_name", "Data Catalog")
+            "project_name", "Data Catalog"
         )
         page_title = f"Data Catalog - {project_name}"
 
