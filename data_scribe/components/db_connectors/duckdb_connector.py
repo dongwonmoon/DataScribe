@@ -144,7 +144,8 @@ class DuckDBConnector(SqlBaseConnector):
 
         except Exception as e:
             logger.error(
-                f"Failed to fetch columns for '{table_name}': {e}", exc_info=True
+                f"Failed to fetch columns for '{table_name}': {e}",
+                exc_info=True,
             )
             raise ConnectorError(
                 f"Failed to fetch columns for '{table_name}': {e}"
@@ -229,7 +230,9 @@ class DuckDBConnector(SqlBaseConnector):
             }
             return stats
         except Exception as e:
-            logger.warning(f"Failed to profile '{table_name}.{column_name}': {e}")
+            logger.warning(
+                f"Failed to profile '{table_name}.{column_name}': {e}"
+            )
             return {
                 "null_ratio": "N/A",
                 "distinct_count": "N/A",

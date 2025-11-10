@@ -182,7 +182,9 @@ class SQLiteConnector(BaseConnector):
                         }
                     )
             except sqlite3.Error as e:
-                logger.warning(f"Failed to get FKs for table '{table_name}': {e}")
+                logger.warning(
+                    f"Failed to get FKs for table '{table_name}': {e}"
+                )
 
         logger.info(f"Found {len(foreign_keys)} foreign key relationships.")
         return foreign_keys
@@ -249,7 +251,9 @@ class SQLiteConnector(BaseConnector):
                 "distinct_count": distinct_count,
                 "is_unique": is_unique,
             }
-            logger.info(f"  - Profile for '{table_name}.{column_name}': {stats}")
+            logger.info(
+                f"  - Profile for '{table_name}.{column_name}': {stats}"
+            )
             return stats
         except sqlite3.Error as e:
             logger.warning(

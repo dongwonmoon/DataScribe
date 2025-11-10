@@ -293,7 +293,7 @@ class NotionWriter(BaseWriter):
                     self._text_cell("Data Type"),
                     self._text_cell("AI-Generated Description"),
                 ]
-            }
+            },
         }
 
         rows = [header]
@@ -313,7 +313,7 @@ class NotionWriter(BaseWriter):
                         self._text_cell(col.get("type")),
                         self._text_cell(desc),
                     ],
-                }
+                },
             }
             rows.append(row)
 

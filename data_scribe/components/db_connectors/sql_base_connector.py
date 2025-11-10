@@ -254,7 +254,9 @@ class SqlBaseConnector(BaseConnector):
                 "distinct_count": distinct_count,
                 "is_unique": is_unique,
             }
-            logger.info(f"  - Profile for '{table_name}.{column_name}': {stats}")
+            logger.info(
+                f"  - Profile for '{table_name}.{column_name}': {stats}"
+            )
             return stats
 
         except Exception as e:

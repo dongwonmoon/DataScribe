@@ -318,7 +318,9 @@ class DbtYamlWriter:
 
         else:
             # File does not exist, create new
-            logger.info(f"   -> Creating new file for stub: '{target_yaml_path}'")
+            logger.info(
+                f"   -> Creating new file for stub: '{target_yaml_path}'"
+            )
             new_yaml_data = CommentedMap()
             new_yaml_data["version"] = 2
             new_yaml_data["models"] = [new_model_stub]
