@@ -62,7 +62,9 @@ def handle_exceptions(func):
             raise typer.Exit(code=1)
         except Exception as e:
             # Handle any unexpected (non-DataScribe) errors
-            logger.error(f"An unknown unexpected error occurred: {e}", exc_info=True)
+            logger.error(
+                f"An unknown unexpected error occurred: {e}", exc_info=True
+            )
             raise typer.Exit(code=1)
 
     return wrapper
@@ -82,12 +84,16 @@ def _select_from_registry(registry: dict, title: str) -> Optional[str]:
     Returns:
         The selected registry key (e.g., "sqlite") or None if the user skips.
     """
-    logger.info(typer.style(f"\n--- 1. Select a {title} ---", fg=typer.colors.CYAN))
+    logger.info(
+        typer.style(f"\n--- 1. Select a {title} ---", fg=typer.colors.CYAN)
+    )
 
     available_types = list(registry.keys())
     for i, key in enumerate(available_types, 1):
         print(f"  {i}: {key}")
-    print(typer.style(f"  0: [Skip this section]", fg=typer.colors.BRIGHT_BLACK))
+    print(
+        typer.style(f"  0: [Skip this section]", fg=typer.colors.BRIGHT_BLACK)
+    )
 
     # Internal loop for input validation
     while True:
@@ -98,7 +104,9 @@ def _select_from_registry(registry: dict, title: str) -> Optional[str]:
             if choice_int == 0:
                 return None  # User chose to skip
             if 1 <= choice_int <= len(available_types):
-                return available_types[choice_int - 1]  # User made a valid choice
+                return available_types[
+                    choice_int - 1
+                ]  # User made a valid choice
         except ValueError:
             pass  # Fall through to the error message
 
@@ -146,10 +154,14 @@ def _prompt_db_params(
         env_data[env_key] = pw
         params["dbname"] = typer.prompt("Database (dbname)")
         if db_type == "postgres":
-            params["schema"] = typer.prompt("Schema (optional)", default="public")
+            params["schema"] = typer.prompt(
+                "Schema (optional)", default="public"
+            )
 
     elif db_type == "snowflake":
-        params["account"] = typer.prompt("Account (e.g. xy12345.ap-northeast-2.aws)")
+        params["account"] = typer.prompt(
+            "Account (e.g. xy12345.ap-northeast-2.aws)"
+        )
         params["user"] = typer.prompt("User")
         pw = typer.prompt(
             f"Password (sensitive, will be stored in .env)", hide_input=True
@@ -246,21 +258,27 @@ def _prompt_writer_params(
             "Confluence URL (e.g. https://your-domain.atlassian.net)"
         )
         params["space_key"] = typer.prompt("Confluence Space Key (e.g. DS)")
-        params["parent_page_id"] = typer.prompt("Confluence Parent Page ID (numeric)")
+        params["parent_page_id"] = typer.prompt(
+            "Confluence Parent Page ID (numeric)"
+        )
         params["page_title_prefix"] = typer.prompt(
             "Page title prefix", default="Data Scribe Catalog"
         )
         params["username"] = typer.prompt("Confluence Username (email)")
 
         if "CONFLUENCE_API_TOKEN" not in env_data:
-            token = typer.prompt("Confluence API Token (sensitive)", hide_input=True)
+            token = typer.prompt(
+                "Confluence API Token (sensitive)", hide_input=True
+            )
             env_data["CONFLUENCE_API_TOKEN"] = token
         params["api_token"] = "${CONFLUENCE_API_TOKEN}"
 
     elif writer_type == "notion":
         params["parent_page_id"] = typer.prompt("Notion Parent Page ID")
         if "NOTION_API_TOKEN" not in env_data:
-            token = typer.prompt("Notion API Token (sensitive)", hide_input=True)
+            token = typer.prompt(
+                "Notion API Token (sensitive)", hide_input=True
+            )
             env_data["NOTION_API_TOKEN"] = token
         params["api_token"] = "${NOTION_API_TOKEN}"
 
@@ -404,7 +422,9 @@ def init_config():
             "\n--- 1. Database Connections ---", fg=typer.colors.CYAN, bold=True
         )
     )
-    db_type = _select_from_registry(DB_CONNECTOR_REGISTRY, "Database Connection")
+    db_type = _select_from_registry(
+        DB_CONNECTOR_REGISTRY, "Database Connection"
+    )
     if db_type:
         profile_name = typer.prompt(
             f"\nProfile name for '{db_type}' (e.g. dev_{db_type})"
@@ -418,7 +438,9 @@ def init_config():
 
     # 2. LLM Providers
     logger.info(
-        typer.style("\n--- 2. LLM Providers ---", fg=typer.colors.CYAN, bold=True)
+        typer.style(
+            "\n--- 2. LLM Providers ---", fg=typer.colors.CYAN, bold=True
+        )
     )
     llm_type = _select_from_registry(LLM_CLIENT_REGISTRY, "LLM Provider")
     if llm_type:
@@ -434,7 +456,9 @@ def init_config():
 
     # 3. Output Profiles
     logger.info(
-        typer.style("\n--- 3. Output Profiles ---", fg=typer.colors.CYAN, bold=True)
+        typer.style(
+            "\n--- 3. Output Profiles ---", fg=typer.colors.CYAN, bold=True
+        )
     )
     writer_type = _select_from_registry(WRITER_REGISTRY, "Output Profile")
     if writer_type:
@@ -478,8 +502,12 @@ def init_config():
                     bold=True,
                 )
             )
-            logger.info(f"Remember to keep your .env file secure and out of git.")
+            logger.info(
+                f"Remember to keep your .env file secure and out of git."
+            )
 
     except Exception as e:
-        logger.error(f"Failed to write configuration file(s): {e}", exc_info=True)
+        logger.error(
+            f"Failed to write configuration file(s): {e}", exc_info=True
+        )
         raise typer.Exit(code=1)
