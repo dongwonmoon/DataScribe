@@ -1,3 +1,11 @@
+"""
+Unit tests for the NotionWriter class.
+
+This test suite mocks the `notion_client` to verify that the `NotionWriter`
+class correctly formats data and makes the expected API calls without
+requiring a live connection to the Notion API.
+"""
+
 import pytest
 from unittest.mock import patch, MagicMock
 import os
@@ -44,8 +52,13 @@ def mock_db_catalog_data():
 @patch("data_scribe.components.writers.notion_writer.Client")
 def test_notion_writer_success(mock_notion_client, mock_db_catalog_data):
     """
-    Tests that NotionWriter initializes the client and calls
-    pages.create with correctly formatted blocks.
+    Tests the success path of the NotionWriter.
+
+    It verifies that:
+    - The Notion client is initialized with the correct API token.
+    - The `pages.create` method is called exactly once.
+    - The `parent` and `properties` (title) of the new page are correct.
+    - The `children` (blocks) are generated and passed to the create call.
     """
     # 1. Setup Mock
     mock_client_instance = MagicMock()
@@ -108,6 +121,10 @@ def test_notion_writer_resolves_env_var(
 ):
     """
     Tests that the writer correctly resolves API tokens from environment variables.
+
+    It checks if the `api_token` provided in the format `${VAR_NAME}` is
+    replaced by the actual value of the environment variable when initializing
+    the Notion client.
     """
     mock_notion_client.return_value = MagicMock()  # Basic mock
 
@@ -126,6 +143,9 @@ def test_notion_writer_resolves_env_var(
 def test_notion_writer_config_errors(mock_db_catalog_data):
     """
     Tests that NotionWriter raises ConfigError on missing configuration.
+
+    It verifies that a `ConfigError` is raised if either `api_token` or
+    `parent_page_id` is missing from the writer's parameters.
     """
     writer = NotionWriter()
 

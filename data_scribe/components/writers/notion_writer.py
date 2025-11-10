@@ -1,5 +1,13 @@
+"""
+This module provides an implementation of the `BaseWriter` for Notion.
+
+It allows writing the generated data catalog to a new page within a specified
+parent page in Notion. It handles connecting to the Notion API, transforming
+the catalog data into Notion blocks, and creating the page.
+"""
+
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from notion_client import Client, APIErrorCode, APIResponseError
 
 from data_scribe.core.interfaces import BaseWriter
@@ -10,14 +18,38 @@ logger = get_logger(__name__)
 
 
 class NotionWriter(BaseWriter):
+    """
+    Implements `BaseWriter` to write a data catalog to a new Notion page.
+
+    This writer connects to the Notion API and constructs a new page with the
+    catalog content, including views and tables, formatted as Notion blocks.
+
+    Attributes:
+        notion (Optional[Client]): The initialized Notion client instance.
+        params (Dict[str, Any]): The configuration parameters for the writer.
+    """
+
     def __init__(self):
-        self.notion: Client | None = None
+        """Initializes the NotionWriter."""
+        self.notion: Optional[Client] = None
         self.params: Dict[str, Any] = {}
         logger.info("NotionWriter initialized")
 
     def _connect(self):
+        """
+        Initializes the connection to the Notion API using the provided token.
+
+        It resolves the API token, which can be provided directly or as an
+        environment variable reference (e.g., `${NOTION_API_KEY}`).
+
+        Raises:
+            ConfigError: If the API token is missing or the referenced
+                         environment variable is not set.
+            ConnectionError: If the Notion client fails to initialize.
+        """
         token = self.params.get("api_token")
 
+        # Resolve token if it's an environment variable reference
         if token and token.startswith("${") and token.endswith("}"):
             env_var = token[2:-1]
             token = os.getenv(env_var)
@@ -36,11 +68,29 @@ class NotionWriter(BaseWriter):
             logger.info("Successfully connected to Notion API.")
 
         except Exception as e:
-            # This now correctly catches only Client() initialization errors
             logger.error(f"Failed to connect to Notion: {e}", exc_info=True)
             raise ConnectionError(f"Failed to connect to Notion: {e}")
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):
+        """
+        Writes the catalog data to a new Notion page.
+
+        This is the main entry point that orchestrates the connection, block
+        generation, and page creation process.
+
+        Args:
+            catalog_data: The structured data catalog to be written.
+            **kwargs: Configuration parameters for the writer. Must include:
+                      - `api_token` (str): The Notion API integration token.
+                      - `parent_page_id` (str): The ID of the parent page under
+                        which the new catalog page will be created.
+                      - `project_name` (str, optional): The name of the project,
+                        used in the page title.
+
+        Raises:
+            ConfigError: If required configuration is missing.
+            WriterError: If there's an error generating blocks or creating the page.
+        """
         self.params = kwargs
         self._connect()
 
@@ -51,8 +101,7 @@ class NotionWriter(BaseWriter):
         project_name = kwargs.get("project_name", "Data Catalog")
         page_title = f"Data Catalog - {project_name}"
 
-        # --- 1. Generate Notion Blocks ---
-        # (This can be simple or very complex, we'll start simple)
+        # 1. Generate a list of Notion blocks from the catalog data.
         try:
             blocks = self._generate_notion_blocks(catalog_data)
         except Exception as e:
@@ -61,22 +110,19 @@ class NotionWriter(BaseWriter):
             )
             raise WriterError(f"Failed to generate Notion blocks: {e}")
 
-        # --- 2. Create the new Page ---
+        # 2. Create the new page in Notion with the generated blocks.
         try:
             logger.info(f"Creating new Notion page: '{page_title}'")
 
-            # Define Page properties (Title)
             new_page_props = {
                 "title": [{"type": "text", "text": {"content": page_title}}]
             }
-
-            # Define Page parent
             parent_data = {"page_id": parent_page_id}
 
             page = self.notion.pages.create(
                 parent=parent_data,
                 properties=new_page_props,
-                children=blocks,  # Add the content blocks
+                children=blocks,
             )
             logger.info(f"Successfully created Notion page: {page.get('url')}")
 
@@ -93,12 +139,22 @@ class NotionWriter(BaseWriter):
         self, catalog_data: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        Helper function to convert catalog data into a list of Notion blocks.
-        (This is a simplified implementation for demonstration)
+        Converts the catalog data dictionary into a list of Notion API block objects.
+
+        This implementation creates a simple layout with headings, paragraphs,
+        and code blocks. Note that it does not create Notion database tables,
+        as the API for table creation is complex. Instead, table columns are
+        rendered as a simple list within a paragraph block.
+
+        Args:
+            catalog_data: The structured data catalog.
+
+        Returns:
+            A list of dictionaries, where each dictionary is a valid Notion block.
         """
         blocks = []
 
-        # --- Helper for text blocks ---
+        # --- Block-level helper functions for readability ---
         def H2(text):
             return {
                 "object": "block",
@@ -130,7 +186,7 @@ class NotionWriter(BaseWriter):
                 },
             }
 
-        # --- 1. Views ---
+        # --- Section 1: Views ---
         blocks.append(H2("🔎 Views"))
         views = catalog_data.get("views", [])
         if not views:
@@ -143,7 +199,7 @@ class NotionWriter(BaseWriter):
                 )
                 blocks.append(Code(view.get("definition", "N/A"), lang="sql"))
 
-        # --- 2. Tables ---
+        # --- Section 2: Tables ---
         blocks.append(H2("🗂️ Tables"))
         tables = catalog_data.get("tables", [])
         if not tables:
@@ -151,8 +207,8 @@ class NotionWriter(BaseWriter):
         else:
             for table in tables:
                 blocks.append(H3(f"Table: {table['name']}"))
-                # Note: Notion API for creating tables is complex (requires child blocks).
-                # A simple paragraph list is easier for this example.
+                # Note: The Notion API for creating tables is complex.
+                # A simple bulleted list in a paragraph is used instead.
                 col_list = []
                 for col in table.get("columns", []):
                     col_list.append(
