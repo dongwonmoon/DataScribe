@@ -38,6 +38,7 @@ google = ["google-generativeai>=0.4.0"]
 ollama = ["ollama>=0.1.0"]
 confluence = ["atlassian-python-api>=3.40.0"]
 snowflake = ["snowflake-connector-python>=3.0.0"]
+notion = ["notion-client>=2.0.0"]
 
 test = [
     "pytest>=7.0.0",
@@ -53,6 +54,7 @@ all = [
     "ollama>=0.1.0",
     "atlassian-python-api>=3.40.0",
     "snowflake-connector-python>=3.0.0",
+    "notion-client>=2.0.0",
     "pytest>=7.0.0",
     "pytest-mock>=3.0.0",
     "dbt-core>=1.7.0",
