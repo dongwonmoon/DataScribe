@@ -10,7 +10,7 @@ easier to test, as its dependencies can be mocked, and decouples it from the
 details of configuration management, which is handled by the `ConfigManager`.
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 import typer
 from schema_scribe.core.interfaces import (
     BaseConnector,
@@ -58,6 +58,22 @@ class DbWorkflow:
         self.db_profile_name = db_profile_name
         self.output_profile_name = output_profile_name
         self.writer_params = writer_params or {}
+        
+    def generate_catalog(self) -> Dict[str, Any]:
+        """
+        Runs the core business logic to generate the catalog dictionary.
+        This can be called by the API server without triggering a file write.
+        """
+        try:
+            # 1. Call the pure business logic (service)
+            logger.info(f"Generating data catalog for: {self.db_profile_name}")
+            catalog_gen = CatalogGenerator(self.db_connector, self.llm_client)
+            catalog = catalog_gen.generate_catalog(self.db_profile_name)
+            return catalog
+        finally:
+            # Ensure the connection is closed even if only generating data
+            logger.info(f"Closing DB connection for {self.db_profile_name}...")
+            self.db_connector.close()
 
     def run(self):
         """
@@ -71,13 +87,13 @@ class DbWorkflow:
         3.  Ensure that the database connection is closed in a `finally` block
             to release resources, regardless of success or failure.
         """
+        catalog = None
         try:
-            # 1. Call the pure business logic (service)
-            logger.info(f"Generating data catalog for: {self.db_profile_name}")
-            catalog_gen = CatalogGenerator(self.db_connector, self.llm_client)
-            catalog = catalog_gen.generate_catalog(self.db_profile_name)
+            # 1. Generate the catalog data
+            # (Now closes connection internally)
+            catalog = self.generate_catalog()
 
-            # 2. Execute the writer (if injected)
+            # 2. Execute writer (if injected)
             if not self.writer:
                 logger.info(
                     "Catalog generated. No --output profile specified, not writing."
@@ -87,14 +103,13 @@ class DbWorkflow:
             logger.info(
                 f"Writing catalog using output profile: '{self.output_profile_name}'"
             )
-
-            # Prepare additional arguments for the writer
+            
             writer_kwargs = {
                 "db_profile_name": self.db_profile_name,
-                "db_connector": self.db_connector,  # For writers like PostgresCommentWriter
+                "db_connector": self.db_connector,
                 **self.writer_params,
             }
-
+            
             self.writer.write(catalog, **writer_kwargs)
             logger.info("Catalog written successfully.")
 
@@ -103,7 +118,3 @@ class DbWorkflow:
                 f"Failed to write catalog using profile '{self.output_profile_name}': {e}"
             )
             raise typer.Exit(code=1)
-        finally:
-            # 3. Clean up used resources (the connector)
-            logger.info(f"Closing DB connection for {self.db_profile_name}...")
-            self.db_connector.close()

@@ -85,6 +85,37 @@ class DbtWorkflow:
         self.db_profile_name = db_profile_name
         self.output_profile_name = output_profile_name
         self.writer_params = writer_params
+        
+    def generate_catalog(self) -> Dict[str, Any]:
+        """
+        Runs the core business logic to generate the dbt catalog dictionary.
+        This can be called by the API server.
+        """
+        try:
+            # --drift mode validation
+            if self.drift and not self.db_connector:
+                logger.error(
+                    "Drift mode requires a --db profile, "
+                    "but no db_connector was provided."
+                )
+                raise typer.Exit(code=1)
+
+            # 2. Generate catalog (using injected components)
+            logger.info(
+                f"Generating dbt catalog for project: {self.dbt_project_dir}"
+            )
+            catalog_gen = DbtCatalogGenerator(
+                llm_client=self.llm_client, db_connector=self.db_connector
+            )
+            catalog = catalog_gen.generate_catalog(
+                dbt_project_dir=self.dbt_project_dir, run_drift_check=self.drift
+            )
+            return catalog
+        finally:
+            # 3. Clean up resources
+            if self.db_connector:
+                logger.info(f"Closing DB connection for {self.db_profile_name}...")
+                self.db_connector.close()
 
     def run(self):
         """
@@ -103,51 +134,36 @@ class DbtWorkflow:
             typer.Exit: If required conditions for a mode are not met.
             CIError: If a CI check (`--check` or `--drift`) fails.
         """
-        # Validation for --drift mode
-        if self.drift and not self.db_connector:
+        catalog = None
+        try:
+            # 1. Generate the catalog data
+            # (Now closes connection internally)
+            catalog = self.generate_catalog()
+
+            # 2. Determine action mode and dispatch
+            action_mode = None
+            if self.drift:
+                action_mode = "drift"
+            elif self.check:
+                action_mode = "check"
+            elif self.interactive:
+                action_mode = "interactive"
+            elif self.update_yaml:
+                action_mode = "update"
+
+            if action_mode:
+                self._handle_yaml_update(action_mode, catalog)
+            elif self.writer:
+                self._handle_file_output(catalog)
+            else:
+                logger.info(
+                    "Catalog generated. No output specified (--output, --update, or --check)."
+                )
+        except (KeyError, ValueError, IOError) as e:
             logger.error(
-                "Drift mode requires a --db profile, "
-                "but no db_connector was provided."
+                f"Failed to run dbt workflow: {e}"
             )
             raise typer.Exit(code=1)
-
-        # 1. Generate Catalog using injected components
-        logger.info(
-            f"Generating dbt catalog for project: {self.dbt_project_dir}"
-        )
-        catalog_gen = DbtCatalogGenerator(
-            llm_client=self.llm_client, db_connector=self.db_connector
-        )
-        catalog = catalog_gen.generate_catalog(
-            dbt_project_dir=self.dbt_project_dir, run_drift_check=self.drift
-        )
-
-        # 2. Determine and execute action mode
-        action_mode = None
-        if self.drift:
-            action_mode = "drift"
-        elif self.check:
-            action_mode = "check"
-        elif self.interactive:
-            action_mode = "interactive"
-        elif self.update_yaml:
-            action_mode = "update"
-
-        if action_mode:
-            # DbtYamlWriter is specific to dbt workflow logic, so it's instantiated here.
-            self._handle_yaml_update(action_mode, catalog)
-        elif self.writer:
-            # Perform file output only if an external writer is injected.
-            self._handle_file_output(catalog)
-        else:
-            logger.info(
-                "Catalog generated. No output specified (--output, --update, or --check)."
-            )
-
-        # 3. Resource cleanup
-        if self.db_connector:
-            logger.info(f"Closing DB connection for {self.db_profile_name}...")
-            self.db_connector.close()
 
     def _handle_yaml_update(self, mode: str, catalog: dict):
         """

@@ -10,6 +10,7 @@ between the CLI and the server.
 """
 
 import os
+import json
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -32,6 +33,8 @@ app = FastAPI(
     description="API for running Schema Scribe documentation workflows.",
     version="1.0.0",
 )
+
+CATALOG_CACHE_FILE = "server_catalog.json"
 
 # --- Pydantic Models for API Request/Response Validation ---
 
@@ -106,37 +109,57 @@ def run_db_workflow(request: RunDbWorkflowRequest):
     components (DB, LLM, Writer) into the DbWorkflow based on
     the profile names provided in the request.
     """
+    db_connector = None
     try:
         logger.info(
             f"Received request to run 'db' workflow with profile: {request.db_profile}"
         )
         cfg_manager = ConfigManager("config.yaml")
 
-        # Build components using ConfigManager
+        # 1. Get dependencies
         db_connector, db_name = cfg_manager.get_db_connector(request.db_profile)
         llm_client, _ = cfg_manager.get_llm_client(request.llm_profile)
-        writer, out_name, writer_params = cfg_manager.get_writer(
-            request.output_profile
-        )
+        
+        # Get output writer *only if specified*, 
+        # but the primary goal is to update the cache.
+        writer, out_name, writer_params = cfg_manager.get_writer(request.output_profile)
 
-        # Inject components into the workflow
         workflow = DbWorkflow(
             db_connector=db_connector,
             llm_client=llm_client,
-            writer=writer,
+            writer=writer, # Pass writer if it exists
             db_profile_name=db_name,
             output_profile_name=out_name,
             writer_params=writer_params,
         )
-        workflow.run()
-        return {
-            "status": "success",
-            "message": f"DB workflow completed for {request.db_profile}.",
-        }
+        
+        # 2. Generate catalog
+        # This executes the logic and closes the connection.
+        catalog_data = workflow.generate_catalog()
+
+        # 3. Update the central cache
+        try:
+            with open(CATALOG_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(catalog_data, f, indent=2)
+            logger.info(f"Updated catalog cache file: {CATALOG_CACHE_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to write catalog cache: {e}")
+            # This isn't fatal, but we should log it.
+
+        # 4. If a writer was requested, also run the write logic
+        if writer:
+            logger.info(f"Running writer for output profile: {out_name}")
+            writer_kwargs = {
+                "db_profile_name": db_name,
+                "db_connector": db_connector, # Note: connection is closed, only for metadata
+                **writer_params,
+            }
+            writer.write(catalog_data, **writer_kwargs)
+
+        # 5. Return the new catalog data
+        return catalog_data
     except DataScribeError as e:
-        logger.error(
-            f"Schema Scribe error running workflow: {e}", exc_info=True
-        )
+        logger.error(f"Schema Scribe error running workflow: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected error running workflow: {e}", exc_info=True)
@@ -196,28 +219,38 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
             db_profile_name=db_name,  # Pass name for logging
             output_profile_name=out_name,
         )
-        workflow.run()  # This will close the db_connector internally
-        return {
-            "status": "success",
-            "message": f"dbt workflow completed for {request.dbt_project_dir}.",
-        }
+        
+        catalog_data = workflow.generate_catalog()
+        
+        action_mode = None
+        if request.drift: action_mode = "drift"
+        elif request.check: action_mode = "check"
+        elif request.update_yaml: action_mode = "update"
+        
+        if action_mode:
+            workflow._handle_yaml_update(action_mode, catalog_data)
+            return {"status": "success", "mode": action_mode, "message": f"dbt {action_mode} complete."}
+        try:
+            with open(CATALOG_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(catalog_data, f, indent=2)
+            logger.info(f"Updated catalog cache file: {CATALOG_CACHE_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to write catalog cache: {e}")
+            
+        if writer:
+            logger.info(f"Running writer for output profile: {out_name}")
+            workflow._handle_file_output(catalog_data)
+            
+        return catalog_data
+    
     except CIError as e:
         logger.warning(f"CI check failed during API call: {e}")
-        # Manually close connector on CIError, as workflow.run() was interrupted
-        if db_connector:
-            db_connector.close()
         raise HTTPException(status_code=409, detail=str(e))
     except DataScribeError as e:
-        logger.error(
-            f"Schema Scribe error running workflow: {e}", exc_info=True
-        )
-        if db_connector:
-            db_connector.close()
+        logger.error(f"Schema Scribe error running workflow: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected error running workflow: {e}", exc_info=True)
-        if db_connector:
-            db_connector.close()
         raise HTTPException(
             status_code=500, detail=f"An unexpected error occurred: {e}"
         )
@@ -279,6 +312,21 @@ def get_global_lineage_graph(
             logger.info(f"Closing DB connection for {db_profile}...")
             db_connector.close()
 
+@app.get("/api/catalog")
+def get_cached_catalog() -> Any:
+    """
+    (NEW) Reads and returns the master catalog JSON file.
+    This file is the central cache used by the UI.
+    """
+    if not os.path.exists(CATALOG_CACHE_FILE):
+        return {"error": "Catalog cache not found. Please run a workflow first."}
+    
+    try:
+        with open(CATALOG_CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error reading cache file {CATALOG_CACHE_FILE}: {e}")
+        raise HTTPException(status_code=500, detail="Could not read catalog cache.")
 
 # --- Static File Serving ---
 
