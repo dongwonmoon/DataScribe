@@ -55,6 +55,9 @@ data-scribe dbt --project-dir /path/to/your/dbt/project --update
 
 # Check for documentation drift against the live database
 data-scribe dbt --project-dir /path/to/your/dbt/project --db your_db_profile --drift
+
+# Generate a global, end-to-end lineage graph
+data-scribe lineage --project-dir /path/to/your/dbt/project --db your_db_profile --output your_mermaid_profile
 ```
 
 **For a database:**
@@ -76,6 +79,7 @@ data-scribe db --output my_markdown
     -   **Documentation Drift Detection**: Use the `--drift` flag to compare your existing documentation against the live database, catching descriptions that have become inconsistent with reality.
 -   **🔒 Security-Aware**: The `init` wizard helps you store sensitive keys (passwords, API tokens) in a `.env` file, not in `config.yaml`.
 -   **🔌 Extensible by Design**: A pluggable architecture supports multiple backends.
+-   **🌐 Global End-to-End Lineage**: Generate a single, project-wide lineage graph that combines physical database foreign keys with logical dbt `ref` and `source` dependencies.
 -   **🚀 Web API Server**: Launch a FastAPI server to trigger documentation workflows programmatically. Includes built-in API documentation via Swagger/ReDoc.
 
 ---
@@ -117,6 +121,14 @@ Scans a dbt project's `manifest.json` file.
 -   `--output TEXT`: (Optional) The output profile to use (if not using `--update`, `--check`, or `--interactive`).
 
 **Note:** `--update`, `--check`, `--interactive`, and `--drift` flags are mutually exclusive. Choose only one.
+
+### `data-scribe lineage`
+
+Generates a global, end-to-end lineage graph for a dbt project.
+
+-   `--project-dir TEXT`: **(Required)** Path to the dbt project directory.
+-   `--db TEXT`: **(Required)** The database profile to scan for physical Foreign Keys.
+-   `--output TEXT`: **(Required)** The output profile (must be type 'mermaid') to write the `.md` file to.
 
 ### `data-scribe serve`
 

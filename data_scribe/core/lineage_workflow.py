@@ -1,7 +1,9 @@
 """
-This module defines the workflow for the 'lineage' command,
-which combines physical DB lineage (FKs) with logical
-dbt lineage (refs/sources).
+This module defines the workflow for the 'lineage' command.
+
+It combines physical database lineage (from foreign keys) with logical dbt
+project lineage (from refs and sources) to generate a single, comprehensive
+end-to-end data lineage graph.
 """
 import typer
 from typing import List, Dict, Any, Set
@@ -15,28 +17,71 @@ logger = get_logger(__name__)
 
 class GlobalLineageGenerator:
     """
-    Merges DB foreign keys and dbt dependencies into a single
-    Mermaid graph string.
+    Builds a global lineage graph from multiple sources.
+
+    This class merges physical foreign key relationships from a database with
+    logical dependencies from a dbt project (`ref` and `source` calls) into a
+    single graph structure. It intelligently assigns and prioritizes styles to
+    nodes to ensure, for example, that a dbt model is always styled as a model,
+    even if it's also a plain database table.
     """
     def __init__(self, db_fks: List[Dict[str, str]], dbt_models: List[Dict[str, Any]]):
+        """
+        Initializes the GlobalLineageGenerator.
+
+        Args:
+            db_fks: A list of foreign key relationships from the database.
+            dbt_models: A list of parsed dbt models, including their dependencies.
+        """
         self.db_fks = db_fks
         self.dbt_models = dbt_models
-        self.nodes: Set[str] = set()
-        self.edges: List[str] = []
+        
+        # Stores nodes and their assigned style, e.g., {"stg_orders": "box"}
+        self.nodes: Dict[str, str] = {}
+        # Stores unique edges to prevent duplicates in the graph
+        self.edges: Set[str] = set()
+
+    def _get_style_priority(self, style: str) -> int:
+        """Assigns a priority to a node style. Higher numbers win."""
+        if style == "box": return 3    # dbt model (highest priority)
+        if style == "source": return 2 # dbt source
+        if style == "db": return 1    # db table (lowest priority)
+        return 0
 
     def _add_node(self, name: str, style: str = "box"):
-        """Adds a node to the graph if it doesn't exist."""
-        if name not in self.nodes:
-            if style == "box":
-                self.nodes.add(f'    {name}["{name}"]') # dbt model
-            elif style == "db":
-                self.nodes.add(f'    {name}[("{name}")]') # DB table
-            elif style == "source":
-                self.nodes.add(f'    {name}(("{name}"))') # dbt source
-            self.nodes.add(name)
+        """
+        Adds a node to the graph, applying style based on priority.
+
+        If the node already exists, its style is only updated if the new
+        style has a higher priority than the current one. This ensures a
+        dbt model is always styled as a model, not as a generic DB table.
+        """
+        current_style = self.nodes.get(name)
+        current_priority = self._get_style_priority(current_style) if current_style else -1
+        new_priority = self._get_style_priority(style)
+        
+        if new_priority > current_priority:
+            self.nodes[name] = style
+
+    def _add_edge(self, from_node: str, to_node: str, label: str = ""):
+        """Adds a unique, formatted edge to the graph's edge set."""
+        if label:
+            self.edges.add(f'    {from_node} -- "{label}" --> {to_node}')
+        else:
+            self.edges.add(f'    {from_node} --> {to_node}')
 
     def generate_graph(self) -> str:
-        """Generates the full Mermaid graph string."""
+        """
+        Generates the complete Mermaid.js graph string.
+
+        It processes database foreign keys first, then dbt dependencies,
+        allowing the style prioritization logic in `_add_node` to work
+        correctly. Finally, it assembles the unique nodes and edges into a
+        single string.
+
+        Returns:
+            A string containing the full Mermaid.js graph definition.
+        """
         logger.info("Generating global lineage graph...")
         
         # 1. Process DB Foreign Keys (Physical Lineage)
@@ -44,37 +89,48 @@ class GlobalLineageGenerator:
             from_table = fk["from_table"]
             to_table = fk["to_table"]
             
-            # Style DB tables
+            # Add nodes with 'db' style (lowest priority)
             self._add_node(from_table, "db")
             self._add_node(to_table, "db")
-            
-            self.edges.append(f'    {from_table} -- FK --> {to_table}')
+            self._add_edge(from_table, to_table, "FK")
 
         # 2. Process dbt Model Dependencies (Logical Lineage)
         for model in self.dbt_models:
             model_name = model["name"]
-            self._add_node(model_name, "box") # Style dbt models
+            self._add_node(model_name, "box") # Style dbt models (highest priority)
             
             for dep in model.get("dependencies", []):
-                if "." in dep: # This is a source (e.g., 'jaffle_shop.customers')
+                # A dependency with a dot is a source (e.g., 'jaffle_shop.customers')
+                if "." in dep:
                     self._add_node(dep, "source")
-                    self.edges.append(f'    {dep} --> {model_name}')
-                else: # This is another dbt model (a ref)
+                    self._add_edge(dep, model_name)
+                else: # Otherwise, it's another dbt model (a ref)
                     self._add_node(dep, "box")
-                    self.edges.append(f'    {dep} --> {model_name}')
+                    self._add_edge(dep, model_name)
 
         # 3. Combine into a Mermaid string
         graph_lines = ["graph TD;"]
-        graph_lines.extend(sorted(list(self.nodes))) # Add all unique node definitions
-        graph_lines.append("") # Spacer
-        graph_lines.extend(sorted(list(self.edges))) # Add all unique edges
+        
+        # Define all nodes with their final, prioritized styles
+        node_definitions = []
+        for name, style in self.nodes.items():
+            if style == "box":
+                node_definitions.append(f'    {name}["{name}"]') # dbt model
+            elif style == "db":
+                node_definitions.append(f'    {name}[("{name}")]') # DB table
+            elif style == "source":
+                node_definitions.append(f'    {name}(("{name}"))') # dbt source
+        
+        graph_lines.extend(sorted(node_definitions))
+        graph_lines.append("") # Spacer for readability
+        graph_lines.extend(sorted(list(self.edges)))
         
         return "\n".join(graph_lines)
 
 
 class LineageWorkflow:
     """
-    Manages the workflow for the 'lineage' command.
+    Manages the end-to-end workflow for the `data-scribe lineage` command.
     """
     def __init__(
         self,
@@ -83,6 +139,9 @@ class LineageWorkflow:
         dbt_project_dir: str,
         output_profile: str,
     ):
+        """
+        Initializes the LineageWorkflow with parameters from the CLI.
+        """
         self.config_path = config_path
         self.db_profile_name = db_profile
         self.dbt_project_dir = dbt_project_dir
@@ -90,7 +149,9 @@ class LineageWorkflow:
         self.config = load_config(config_path)
 
     def run(self):
-        """Executes the lineage generation workflow."""
+        """
+        Executes the full lineage generation and writing workflow.
+        """
         
         # 1. Get Physical Lineage (FKs) from DB
         db_connector = None
@@ -112,7 +173,7 @@ class LineageWorkflow:
         # 2. Get Logical Lineage (refs) from dbt
         logger.info(f"Parsing dbt project at '{self.dbt_project_dir}' for dependencies...")
         parser = DbtManifestParser(self.dbt_project_dir)
-        dbt_models = parser.models # This now contains 'dependencies'
+        dbt_models = parser.models
         logger.info(f"Parsed {len(dbt_models)} dbt models.")
         
         # 3. Generate Graph
@@ -125,6 +186,7 @@ class LineageWorkflow:
         try:
             writer_params = self.config["output_profiles"][self.output_profile_name]
             writer_type = writer_params.pop("type")
+            # The workflow requires a 'mermaid' writer type.
             if writer_type != "mermaid":
                  logger.warning(f"Output profile '{self.output_profile_name}' is not type 'mermaid'. Using MermaidWriter anyway.")
             

@@ -1,6 +1,6 @@
 """
-This module provides a simple writer for saving a raw Mermaid
-string to a Markdown file.
+This module provides a specialized writer for saving a Mermaid.js graph
+string to a Markdown file, formatted for rendering.
 """
 
 from typing import Dict, Any
@@ -13,21 +13,31 @@ logger = get_logger(__name__)
 
 class MermaidWriter(BaseWriter):
     """
-    Handles writing a single Mermaid chart string to a .md file.
+    Handles writing a single Mermaid graph string to a Markdown file.
+
+    This writer is designed to take a complete Mermaid graph definition
+    and save it within a Markdown code block, ready for rendering in
+    supported platforms like GitHub or GitLab.
     """
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):
         """
-        Writes the Mermaid chart to a Markdown file.
+        Writes the Mermaid graph from catalog_data to a Markdown file.
 
         Args:
-            catalog_data: A dictionary expected to have a "mermaid_graph" key.
-            **kwargs: Expects 'output_filename'.
+            catalog_data: A dictionary expected to contain the key
+                          `"mermaid_graph"` with the full Mermaid string.
+            **kwargs: Expects the `output_filename` key, which specifies
+                      the path to the output `.md` file.
+
+        Raises:
+            ConfigError: If `output_filename` is not provided in kwargs.
+            WriterError: If there is an error writing the file to disk.
         """
         output_filename = kwargs.get("output_filename")
         if not output_filename:
             logger.error("MermaidWriter 'write' method missing 'output_filename'.")
-            raise ConfigError("Missing required kwargs for MermaidWriter.")
+            raise ConfigError("Missing required kwarg 'output_filename' for MermaidWriter.")
 
         mermaid_graph = catalog_data.get("mermaid_graph")
         if not mermaid_graph:

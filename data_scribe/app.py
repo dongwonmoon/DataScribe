@@ -432,8 +432,15 @@ def generate_lineage(
     ),
 ):
     """
-    Generates a Global End-to-End lineage graph (Mermaid) by combining
-    physical DB Foreign Keys with logical dbt dependencies (refs/sources).
+    Generates a global end-to-end lineage graph for a dbt project.
+
+    This command creates a comprehensive, project-wide lineage graph by
+    combining two sources of information:
+    1.  **Physical Lineage**: Foreign key relationships from the live database.
+    2.  **Logical Lineage**: `ref()` and `source()` dependencies from the dbt project.
+
+    The resulting output is a single Mermaid.js graph, saved to a Markdown file,
+    that shows the complete data flow from source tables to final models.
     """
     LineageWorkflow(
         config_path=config_path,
