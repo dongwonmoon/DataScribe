@@ -17,7 +17,11 @@ from schema_scribe.core.factory import (
 from schema_scribe.components.db_connectors import SQLiteConnector
 from schema_scribe.components.llm_clients import OpenAIClient
 from schema_scribe.components.writers import MarkdownWriter
-from schema_scribe.core.interfaces import BaseConnector, BaseLLMClient, BaseWriter
+from schema_scribe.core.interfaces import (
+    BaseConnector,
+    BaseLLMClient,
+    BaseWriter,
+)
 
 
 def test_get_db_connector_supported():

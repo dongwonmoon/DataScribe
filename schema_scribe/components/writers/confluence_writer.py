@@ -170,7 +170,7 @@ class ConfluenceWriter(BaseWriter):
             A string of raw Mermaid code (without code fences).
         """
         if not foreign_keys:
-            return "graph TD;\n  A[No foreign key relationships found]";
+            return "graph TD;\n  A[No foreign key relationships found]"
 
         code = ["graph TD;"]  # Top-Down graph
         tables = set()

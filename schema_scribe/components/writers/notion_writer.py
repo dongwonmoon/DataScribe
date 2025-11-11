@@ -166,7 +166,7 @@ class NotionWriter(BaseWriter):
         return {
             "object": "block",
             "type": "heading_2",
-            "heading_2": {"rich_text": [{"text": {"content": text}}]}
+            "heading_2": {"rich_text": [{"text": {"content": text}}]},
         }
 
     def _H3(self, text: str) -> Dict[str, Any]:
@@ -182,7 +182,7 @@ class NotionWriter(BaseWriter):
         return {
             "object": "block",
             "type": "heading_3",
-            "heading_3": {"rich_text": [{"text": {"content": text}}]}
+            "heading_3": {"rich_text": [{"text": {"content": text}}]},
         }
 
     def _Para(self, text: str) -> Dict[str, Any]:
@@ -198,7 +198,7 @@ class NotionWriter(BaseWriter):
         return {
             "object": "block",
             "type": "paragraph",
-            "paragraph": {"rich_text": [{"text": {"content": text}}]}
+            "paragraph": {"rich_text": [{"text": {"content": text}}]},
         }
 
     def _Code(self, text: str, lang: str = "sql") -> Dict[str, Any]:

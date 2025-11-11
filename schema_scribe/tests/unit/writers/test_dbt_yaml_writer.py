@@ -175,6 +175,7 @@ def test_dbt_yaml_writer_check_mode_no_changes(dbt_project):
     updates_needed = writer.update_yaml_files(catalog)
     assert not updates_needed
 
+
 def test_dbt_yaml_writer_check_mode_changes_needed(dbt_project):
     """Tests check mode when changes are needed."""
     writer = DbtYamlWriter(dbt_project_dir=dbt_project, mode="check")
@@ -185,13 +186,14 @@ def test_dbt_yaml_writer_check_mode_changes_needed(dbt_project):
     updates_needed = writer.update_yaml_files(catalog)
     assert updates_needed
 
+
 def test_dbt_yaml_writer_malformed_yaml(dbt_project):
     """Tests that WriterError is raised for a malformed schema.yml."""
     # Overwrite the existing schema.yml with invalid content
     schema_file = f"{dbt_project}/models/schema.yml"
     with open(schema_file, "w") as f:
         f.write(
-            "models: - name: customers\n  - name: orders" 
+            "models: - name: customers\n  - name: orders"
         )  # Invalid YAML indentation
 
     writer = DbtYamlWriter(dbt_project_dir=dbt_project)

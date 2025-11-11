@@ -7,7 +7,9 @@ from unittest.mock import patch
 from schema_scribe.components.db_connectors import MariaDBConnector
 
 
-@patch("schema_scribe.components.db_connectors.mariadb_connector.mysql.connector")
+@patch(
+    "schema_scribe.components.db_connectors.mariadb_connector.mysql.connector"
+)
 def test_mariadb_connector_connect(mock_mysql_connector):
     """Tests that MariaDBConnector calls mysql.connector.connect with correct params."""
     connector = MariaDBConnector()

@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 
 from schema_scribe.components.writers import PostgresCommentWriter
 from schema_scribe.components.db_connectors import PostgresConnector
-from schema_scribe.core.exceptions import ConfigError, ConnectorError, WriterError
+from schema_scribe.core.exceptions import (
+    ConfigError,
+    ConnectorError,
+    WriterError,
+)
 
 
 @pytest.fixture

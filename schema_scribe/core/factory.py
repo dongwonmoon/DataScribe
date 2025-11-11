@@ -10,7 +10,11 @@ can be added by simply registering them.
 
 from typing import Dict, Type, Any
 
-from schema_scribe.core.interfaces import BaseConnector, BaseLLMClient, BaseWriter
+from schema_scribe.core.interfaces import (
+    BaseConnector,
+    BaseLLMClient,
+    BaseWriter,
+)
 from schema_scribe.components.db_connectors import (
     SQLiteConnector,
     PostgresConnector,

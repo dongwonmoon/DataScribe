@@ -29,9 +29,7 @@ class GlobalLineageGenerator:
     """
 
     def __init__(
-        self,
-        db_fks: List[Dict[str, str]],
-        dbt_models: List[Dict[str, Any]]
+        self, db_fks: List[Dict[str, str]], dbt_models: List[Dict[str, Any]]
     ):
         """
         Initializes the GlobalLineageGenerator.
@@ -110,8 +108,7 @@ class GlobalLineageGenerator:
         for model in self.dbt_models:
             model_name = model["name"]
             self._add_node(
-                model_name,
-                "box" # Style dbt models (highest priority)
+                model_name, "box"  # Style dbt models (highest priority)
             )
 
             for dep in model.get("dependencies", []):

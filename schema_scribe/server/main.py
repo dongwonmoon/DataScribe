@@ -147,7 +147,9 @@ def run_db_workflow(request: RunDbWorkflowRequest):
 
     except DataScribeError as e:
         # Catch our custom exceptions and return a 400 Bad Request
-        logger.error(f"Schema Scribe error running workflow: {e}", exc_info=True)
+        logger.error(
+            f"Schema Scribe error running workflow: {e}", exc_info=True
+        )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         # Catch any other unexpected errors
@@ -224,7 +226,9 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
         logger.warning(f"CI check failed during API call: {e}")
         raise HTTPException(status_code=409, detail=str(e))
     except DataScribeError as e:
-        logger.error(f"Schema Scribe error running workflow: {e}", exc_info=True)
+        logger.error(
+            f"Schema Scribe error running workflow: {e}", exc_info=True
+        )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected error running workflow: {e}", exc_info=True)

@@ -61,8 +61,7 @@ class CatalogGenerator:
         return "\n".join(context_lines)
 
     def generate_catalog(
-        self,
-        db_profile_name: str
+        self, db_profile_name: str
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Generates a complete data catalog for the connected database.
