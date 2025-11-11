@@ -30,7 +30,7 @@ from data_scribe.components.writers import (
     ConfluenceWriter,
     PostgresCommentWriter,
     NotionWriter,
-    MermaidWriter
+    MermaidWriter,
 )
 from data_scribe.utils.logger import get_logger
 

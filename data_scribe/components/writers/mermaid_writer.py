@@ -11,6 +11,7 @@ from data_scribe.core.exceptions import WriterError, ConfigError
 
 logger = get_logger(__name__)
 
+
 class MermaidWriter(BaseWriter):
     """
     Handles writing a single Mermaid graph string to a Markdown file.
@@ -36,12 +37,18 @@ class MermaidWriter(BaseWriter):
         """
         output_filename = kwargs.get("output_filename")
         if not output_filename:
-            logger.error("MermaidWriter 'write' method missing 'output_filename'.")
-            raise ConfigError("Missing required kwarg 'output_filename' for MermaidWriter.")
+            logger.error(
+                "MermaidWriter 'write' method missing 'output_filename'."
+            )
+            raise ConfigError(
+                "Missing required kwarg 'output_filename' for MermaidWriter."
+            )
 
         mermaid_graph = catalog_data.get("mermaid_graph")
         if not mermaid_graph:
-            logger.warning("No 'mermaid_graph' key found in catalog data. Writing empty file.")
+            logger.warning(
+                "No 'mermaid_graph' key found in catalog data. Writing empty file."
+            )
             mermaid_graph = "graph TD;\n  A[No lineage data found];"
 
         try:
@@ -53,5 +60,9 @@ class MermaidWriter(BaseWriter):
                 f.write("\n```\n")
             logger.info("Finished writing lineage file.")
         except IOError as e:
-            logger.error(f"Error writing to file '{output_filename}': {e}", exc_info=True)
-            raise WriterError(f"Error writing to file '{output_filename}': {e}") from e
+            logger.error(
+                f"Error writing to file '{output_filename}': {e}", exc_info=True
+            )
+            raise WriterError(
+                f"Error writing to file '{output_filename}': {e}"
+            ) from e

@@ -410,7 +410,8 @@ def scan_dbt(
         interactive=interactive,
         drift=drift,
     ).run()
-    
+
+
 @app.command(name="lineage")
 @handle_exceptions
 def generate_lineage(
