@@ -26,7 +26,7 @@ from data_scribe.core.exceptions import (
     ConfigError,
     LLMClientError,
     WriterError,
-    CIError
+    CIError,
 )
 from data_scribe.core.factory import (
     DB_CONNECTOR_REGISTRY,
@@ -539,10 +539,13 @@ def init_config():
         )
         raise typer.Exit(code=1)
 
+
 @app.command(name="serve")
 @handle_exceptions
 def serve_app(
-    host: str = typer.Option("127.0.0.1", help="The host to bind the server to."),
+    host: str = typer.Option(
+        "127.0.0.1", help="The host to bind the server to."
+    ),
     port: int = typer.Option(8000, help="The port to run the server on."),
 ):
     """
@@ -556,14 +559,14 @@ def serve_app(
     """
     if uvicorn is None:
         logger.error("Failed to import 'uvicorn' or 'fastapi'.")
-        logger.error("Please run 'pip install data-scribe[server]' to install server dependencies.")
+        logger.error(
+            "Please run 'pip install data-scribe[server]' to install server dependencies."
+        )
         raise typer.Exit(code=1)
-    
+
     logger.info(f"Starting Data Scribe server at http://{host}:{port}")
     logger.info("Go to http://{host}:{port}/docs for API documentation.")
-    
+
     uvicorn.run(
-        fastapi_app, # The FastAPI app we imported
-        host=host,
-        port=port
+        fastapi_app, host=host, port=port  # The FastAPI app we imported
     )
