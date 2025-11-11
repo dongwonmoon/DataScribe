@@ -15,6 +15,7 @@ import typer
 from unittest.mock import MagicMock, patch
 
 from data_scribe.core.dbt_workflow import DbtWorkflow
+from data_scribe.core.exceptions import CIError
 
 # A minimal manifest.json structure needed for the tests
 MINIMAL_MANIFEST = {
@@ -261,9 +262,8 @@ def test_dbt_workflow_check_fails(dbt_project, config_for_dbt, mock_llm_client):
         interactive=False,
         drift=False,
     )
-    with pytest.raises(typer.Exit) as e:
+    with pytest.raises(CIError) as e:
         workflow.run()
-    assert e.value.exit_code == 1
 
 
 def test_dbt_workflow_check_succeeds(
@@ -421,11 +421,8 @@ def test_dbt_workflow_drift_mode_drift_detected(
     )
 
     # 3. Assert
-    with pytest.raises(typer.Exit) as e:
+    with pytest.raises(CIError) as e:
         workflow.run()
-
-    # Check that it exited with the CI failure code
-    assert e.value.exit_code == 1
 
     # Verify that the LLM was called with the drift check prompt
     drift_prompt_call = next(
