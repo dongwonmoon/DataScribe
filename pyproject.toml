@@ -39,6 +39,7 @@ ollama = ["ollama>=0.1.0"]
 confluence = ["atlassian-python-api>=3.40.0"]
 snowflake = ["snowflake-connector-python>=3.0.0"]
 notion = ["notion-client>=2.0.0"]
+server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0"]
 
 test = [
     "pytest>=7.0.0",
@@ -59,6 +60,8 @@ all = [
     "pytest-mock>=3.0.0",
     "dbt-core>=1.7.0",
     "dbt-duckdb>=1.7.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
 ]
 
 [tool.setuptools.packages.find]

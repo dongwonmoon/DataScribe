@@ -13,6 +13,11 @@ import os
 import yaml
 from typing import Dict, Any, Optional
 
+try:
+    import uvicorn
+except:
+    uvicorn = None
+
 from data_scribe.core.db_workflow import DbWorkflow
 from data_scribe.core.dbt_workflow import DbtWorkflow
 from data_scribe.core.exceptions import (
@@ -21,6 +26,7 @@ from data_scribe.core.exceptions import (
     ConfigError,
     LLMClientError,
     WriterError,
+    CIError
 )
 from data_scribe.core.factory import (
     DB_CONNECTOR_REGISTRY,
@@ -28,6 +34,7 @@ from data_scribe.core.factory import (
     WRITER_REGISTRY,
 )
 from data_scribe.utils.logger import get_logger
+from data_scribe.server.main import app as fastapi_app
 
 # Initialize a logger for this module
 logger = get_logger(__name__)
@@ -52,6 +59,9 @@ def handle_exceptions(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
+        except CIError as e:
+            logger.error(str(e))
+            raise typer.Exit(code=1)
         except (ConfigError, ConnectorError, LLMClientError, WriterError) as e:
             logger.error(f"{type(e).__name__}: {e}")
             raise typer.Exit(code=1)
@@ -528,3 +538,32 @@ def init_config():
             f"Failed to write configuration file(s): {e}", exc_info=True
         )
         raise typer.Exit(code=1)
+
+@app.command(name="serve")
+@handle_exceptions
+def serve_app(
+    host: str = typer.Option("127.0.0.1", help="The host to bind the server to."),
+    port: int = typer.Option(8000, help="The port to run the server on."),
+):
+    """
+    Launches the Data Scribe web server (FastAPI).
+
+    This command starts a Uvicorn server to run the FastAPI application,
+    providing a web-based API for the Data Scribe workflows.
+
+    Note: This feature requires optional dependencies. Install them with:
+    `pip install "data-scribe[server]"`
+    """
+    if uvicorn is None:
+        logger.error("Failed to import 'uvicorn' or 'fastapi'.")
+        logger.error("Please run 'pip install data-scribe[server]' to install server dependencies.")
+        raise typer.Exit(code=1)
+    
+    logger.info(f"Starting Data Scribe server at http://{host}:{port}")
+    logger.info("Go to http://{host}:{port}/docs for API documentation.")
+    
+    uvicorn.run(
+        fastapi_app, # The FastAPI app we imported
+        host=host,
+        port=port
+    )

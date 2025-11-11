@@ -15,6 +15,7 @@ from data_scribe.core.workflow_helpers import (
     load_config_from_path,
     init_llm,
 )
+from data_scribe.core.exceptions import CIError
 from data_scribe.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -143,7 +144,7 @@ class DbtWorkflow:
                         else "documentation drift was detected"
                     )
                     logger.error(f"CI CHECK FAILED: {log_msg}.")
-                    raise typer.Exit(code=1)
+                    raise CIError(f"CI CHECK FAILED: {log_msg}.")
                 else:
                     log_msg = "is up-to-date" if self.check else "has no drift"
                     logger.info(

@@ -67,3 +67,10 @@ class DbtParseError(DataScribeError):
     """
 
     pass
+
+class CIError(DataScribeError):
+    """
+    Raised specifically when a CI check (--check or --drift) fails.
+    This allows different interfaces (CLI vs. Server) to handle it properly.
+    """
+    pass

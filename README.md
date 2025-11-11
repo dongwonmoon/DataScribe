@@ -30,6 +30,7 @@ pip install -r requirements.txt
 ```
 
 *(Note: For specific databases, install optional dependencies: `pip install -e ".[postgres, snowflake]"`)*
+*(Note: To use the web server, also install server dependencies: `pip install "data-scribe[server]"`)*
 
 ### 2. Initialize
 
@@ -75,6 +76,7 @@ data-scribe db --output my_markdown
     -   **Documentation Drift Detection**: Use the `--drift` flag to compare your existing documentation against the live database, catching descriptions that have become inconsistent with reality.
 -   **🔒 Security-Aware**: The `init` wizard helps you store sensitive keys (passwords, API tokens) in a `.env` file, not in `config.yaml`.
 -   **🔌 Extensible by Design**: A pluggable architecture supports multiple backends.
+-   **🚀 Web API Server**: Launch a FastAPI server to trigger documentation workflows programmatically. Includes built-in API documentation via Swagger/ReDoc.
 
 ---
 
@@ -115,6 +117,37 @@ Scans a dbt project's `manifest.json` file.
 -   `--output TEXT`: (Optional) The output profile to use (if not using `--update`, `--check`, or `--interactive`).
 
 **Note:** `--update`, `--check`, `--interactive`, and `--drift` flags are mutually exclusive. Choose only one.
+
+### `data-scribe serve`
+
+Launches the FastAPI web server.
+
+-   `--host TEXT`: (Optional) The host to bind the server to. Defaults to `127.0.0.1`.
+-   `--port INTEGER`: (Optional) The port to run the server on. Defaults to `8000`.
+
+---
+
+## 🚀 Web API Server
+
+Data Scribe includes a built-in FastAPI web server that exposes the core workflows via a REST API. This is perfect for programmatic integration or for building a custom web UI.
+
+**1. Launch the server:**
+(Make sure you have installed the server dependencies: `pip install "data-scribe[server]"`)
+```bash
+data-scribe serve --host 0.0.0.0 --port 8000
+```
+
+**2. Explore the API:**
+Once the server is running, you can access the interactive API documentation (powered by Swagger UI) at:
+[http://localhost:8000/docs](http://localhost:8000/docs)
+
+**3. Example: Get available profiles**
+You can interact with the API using any HTTP client, like `curl`.
+```bash
+curl -X GET "http://localhost:8000/api/profiles" -H "accept: application/json"
+```
+
+This will return a JSON object listing all the database, LLM, and output profiles defined in your `config.yaml`.
 
 ---
 
