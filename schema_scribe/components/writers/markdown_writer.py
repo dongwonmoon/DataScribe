@@ -2,8 +2,16 @@
 This module provides `MarkdownWriter`, an implementation of `BaseWriter` for
 generating a data catalog in Markdown format.
 
-It converts the structured catalog data into a human-readable Markdown file,
-including an ERD, and sections for database views and tables.
+Design Rationale:
+The `MarkdownWriter` is designed to produce a human-readable and easily shareable
+representation of a database's schema. It translates the structured output of
+the `CatalogGenerator` into a Markdown document, including:
+- A high-level overview.
+- An Entity Relationship Diagram (ERD) generated using Mermaid.js syntax.
+- Detailed sections for database views and tables, complete with AI-generated
+  summaries and column descriptions.
+This format is ideal for documentation that can be version-controlled and
+rendered in various platforms (e.g., GitHub, Confluence).
 """
 
 from typing import Dict, List, Any
@@ -22,7 +30,8 @@ class MarkdownWriter(BaseWriter):
     Implements `BaseWriter` to write a database catalog to a Markdown file.
 
     This class transforms the abstract catalog dictionary into a rich,
-    human-readable Markdown document.
+    human-readable Markdown document, creating dedicated sections for ERD,
+    views, and tables.
     """
 
     def _generate_erd_mermaid(self, foreign_keys: List[Dict[str, str]]) -> str:
@@ -62,10 +71,10 @@ class MarkdownWriter(BaseWriter):
         Writes the catalog data to a Markdown file.
 
         The generated file has the following structure:
-        1.  A main title.
+        1.  A main title for the database profile.
         2.  An Entity Relationship Diagram (ERD) generated with Mermaid.js.
-        3.  A section for all database views with their summaries and SQL code.
-        4.  A section for all database tables with their summaries and column details.
+        3.  A section for all database views with their AI-generated summaries and SQL code.
+        4.  A section for all database tables with their AI-generated summaries and column details.
 
         Args:
             catalog_data: A dictionary containing the structured catalog data.

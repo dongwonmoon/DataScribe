@@ -1,6 +1,14 @@
 """
 This module provides `GoogleGenAIClient`, a concrete implementation of the
 `BaseLLMClient` interface for Google's Generative AI (Gemini) API.
+
+Design Rationale:
+This client is designed to be a straightforward and secure wrapper around the
+official `google-generativeai` Python library. It integrates with the
+application's centralized settings management (`schema_scribe.utils.config.settings`),
+which securely loads the `GOOGLE_API_KEY` from environment variables (e.g., a
+`.env` file). This approach avoids hardcoding secrets and keeps API key handling
+consistent and secure.
 """
 
 import google.generativeai as genai
@@ -18,23 +26,23 @@ class GoogleGenAIClient(BaseLLMClient):
 
     This class implements the `BaseLLMClient` interface. Its primary
     responsibilities are to:
-    1.  Fetch the `GOOGLE_API_KEY` from the application settings (which are
-        loaded from environment variables).
+    1.  Fetch the `GOOGLE_API_KEY` from the application's central settings.
     2.  Configure the `google-generativeai` library with the API key.
     3.  Wrap the `generate_content` API call to provide a consistent
         `get_description` method.
     """
 
-    def __init__(self, model: str = "gemini-pro"):
+    def __init__(self, model: str = "gemini-2.5-flash"):
         """
         Initializes the Google GenAI (Gemini) client.
 
         This method configures the `google.generativeai` library with the API key
-        and instantiates the specified generative model.
+        retrieved from the application's settings and instantiates the specified
+        generative model.
 
         Args:
             model: The name of the Gemini model to use, as specified in the
-                   `config.yaml` file (e.g., 'gemini-pro').
+                   `config.yaml` file (e.g., 'gemini-2.5-flash').
 
         Raises:
             ConfigError: If the `GOOGLE_API_KEY` is not found in the environment
@@ -64,15 +72,9 @@ class GoogleGenAIClient(BaseLLMClient):
         """
         Generates a description using the configured Google Gemini model.
 
-        Note on `max_tokens`: The `google-generativeai` library does not use a
-        direct `max_tokens` parameter in its `generate_content` method. Output
-        length is controlled via a `generation_config` object. For simplicity,
-        this implementation does not use it, and the `max_tokens` argument is
-        therefore ignored.
-
         Args:
             prompt: The prompt to send to the language model.
-            max_tokens: The maximum number of tokens to generate (currently ignored).
+            max_tokens: The maximum number of tokens to generates
 
         Returns:
             The AI-generated description as a string.
@@ -84,7 +86,12 @@ class GoogleGenAIClient(BaseLLMClient):
             logger.info(
                 f"Sending prompt to Google GenAI '{self.model.model_name}' model..."
             )
-            response = self.model.generate_content(prompt)
+            generation_config = genai.GenerationConfig(
+                max_output_tokens=max_tokens
+            )
+            response = self.model.generate_content(
+                prompt, generation_config=generation_config
+            )
             description = response.text.strip()
             logger.info("Response received from Google GenAI.")
             return description

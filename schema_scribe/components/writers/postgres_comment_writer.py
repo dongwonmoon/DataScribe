@@ -3,8 +3,18 @@ This module provides `PostgresCommentWriter`, a `BaseWriter` implementation
 that pushes generated data catalog descriptions back into a PostgreSQL database
 as native database comments.
 
-It uses `COMMENT ON` SQL statements to update descriptions for tables, views,
-and columns directly within the database's metadata catalog.
+Design Rationale:
+The `PostgresCommentWriter` offers a unique approach to data documentation by
+integrating descriptions directly into the database's metadata. This has several
+advantages:
+- **Discoverability**: Comments are visible directly within database tools (e.g.,
+  `psql`, DBeaver, DataGrip), making documentation easily accessible to data users.
+- **Consistency**: Documentation lives alongside the schema, reducing the risk
+  of drift between code and documentation.
+- **Integration**: It leverages PostgreSQL's native `COMMENT ON` SQL statements,
+  ensuring compatibility and robustness.
+The entire operation is performed within a single database transaction to
+guarantee atomicity.
 """
 
 from typing import Dict, Any
@@ -30,7 +40,7 @@ class PostgresCommentWriter(BaseWriter):
     This specialized writer requires an active `PostgresConnector` instance to
     execute SQL commands that update the metadata for tables, views, and columns
     directly in the database. The entire operation is performed within a single
-    database transaction.
+    database transaction to ensure atomicity and data integrity.
     """
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):
@@ -69,12 +79,13 @@ class PostgresCommentWriter(BaseWriter):
         schema_name = db_connector.schema_name
 
         try:
-            # Process Views
+            # Process Views: Add comments to views
             for view in catalog_data.get("views", []):
                 description = view.get("ai_summary", "").replace("'", "''")
                 logger.info(
                     f"  - Writing comment for VIEW: '{schema_name}.{view['name']}'"
                 )
+                # Use parameterized query to prevent SQL injection and handle quotes
                 query = (
                     f'COMMENT ON VIEW "{schema_name}"."{view["name"]}" IS %s;'
                 )
@@ -89,6 +100,7 @@ class PostgresCommentWriter(BaseWriter):
                     logger.info(
                         f"  - Writing comment for TABLE: '{schema_name}.{table_name}'"
                     )
+                    # Use parameterized query for table comment
                     query = f'COMMENT ON TABLE "{schema_name}"."{table_name}" IS %s;'
                     cursor.execute(query, (table_desc,))
 
@@ -99,6 +111,7 @@ class PostgresCommentWriter(BaseWriter):
                     logger.info(
                         f"  - Writing comment for COLUMN: '{schema_name}.{table_name}.{col_name}'"
                     )
+                    # Use parameterized query for column comment
                     query = f'COMMENT ON COLUMN "{schema_name}"."{table_name}"."{col_name}" IS %s;'
                     cursor.execute(query, (col_desc,))
 

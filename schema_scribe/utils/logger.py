@@ -1,8 +1,16 @@
 """
 This module provides a simple, reusable logger configuration for the application.
 
-The `get_logger` function configures and returns a standard Python logger that
-outputs formatted messages to the console.
+Design Rationale:
+A centralized logging utility is crucial for maintaining consistent and
+actionable logs across an application. This module ensures that:
+- **Consistency**: All log messages adhere to a predefined format, making them
+  easier to read and parse.
+- **Ease of Configuration**: Loggers can be obtained and used throughout the
+  application without repetitive setup code.
+- **Single Point of Control**: Future changes to logging behavior (e.g.,
+  changing output destination, log level, or format) can be managed from
+  a single location.
 """
 
 import logging
@@ -13,10 +21,17 @@ def get_logger(name: str) -> logging.Logger:
     """
     Configures and returns a logger with a specified name.
 
-    The logger is configured to output messages of level INFO and above to the
-    console (stdout). The format includes a timestamp, logger name, level, and
-    message. If a logger with the given name has already been configured, this
-    function returns the existing instance without re-configuring it.
+    Design Rationale:
+    This function implements a "singleton-like" pattern for loggers. If a
+    logger with the given name has already been configured, it returns the
+    existing instance without re-configuring it. This prevents duplicate
+    handlers and ensures consistent logging behavior across different parts
+    of the application that request the same named logger.
+
+    The logger is configured to:
+    - Output messages of level INFO and above.
+    - Stream log messages to standard output (stdout).
+    - Format messages to include a timestamp, logger name, level, and the message itself.
 
     Args:
         name: The name for the logger, typically the module's `__name__`.

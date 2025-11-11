@@ -1,6 +1,14 @@
 """
 This module provides `OpenAIClient`, a concrete implementation of the
 `BaseLLMClient` interface for the OpenAI API.
+
+Design Rationale:
+This client is designed to be a straightforward and secure wrapper around the
+official `openai` Python library. It integrates with the application's
+centralized settings management (`schema_scribe.utils.config.settings`), which
+securely loads the `OPENAI_API_KEY` from environment variables (e.g., a `.env`
+file). This approach avoids hardcoding secrets and keeps API key handling
+consistent and secure across the application.
 """
 
 from openai import OpenAI
@@ -19,8 +27,7 @@ class OpenAIClient(BaseLLMClient):
 
     This class implements the `BaseLLMClient` interface. Its primary
     responsibilities are to:
-    1.  Fetch the `OPENAI_API_KEY` from the application settings (which are
-        loaded from environment variables).
+    1.  Fetch the `OPENAI_API_KEY` from the application's central settings.
     2.  Initialize the `openai` library's client.
     3.  Wrap the `chat.completions.create` API call to provide a consistent
         `get_description` method.
@@ -29,6 +36,9 @@ class OpenAIClient(BaseLLMClient):
     def __init__(self, model: str = "gpt-3.5-turbo"):
         """
         Initializes the OpenAIClient.
+
+        This constructor retrieves the API key from the application's settings
+        (which are loaded from environment variables) and initializes the client.
 
         Args:
             model: The name of the OpenAI model to use (e.g., "gpt-3.5-turbo"),

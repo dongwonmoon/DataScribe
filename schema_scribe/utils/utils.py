@@ -1,7 +1,14 @@
 """
-This module contains low-level utility functions for the application, primarily
-focused on handling dynamic configuration by expanding environment variables
-within YAML files.
+This module contains low-level utility functions for the application.
+
+Design Rationale:
+The primary focus of this module is to provide robust and secure configuration
+management. By centralizing functions for expanding environment variables within
+configuration files, it enables:
+- **Security**: Sensitive information (e.g., API keys, database passwords) can
+  be kept out of version control and injected at runtime.
+- **Flexibility**: Configuration can be easily adapted to different environments
+  (development, staging, production) without modifying the core configuration files.
 """
 
 import os
@@ -15,8 +22,12 @@ def expand_env_vars(content: str) -> str:
     """
     Expands environment variables of the form `${VAR}` in a string.
 
-    This allows for dynamic configuration values to be pulled from the environment,
-    which is useful for sensitive data like API keys or passwords.
+    Design Rationale:
+    This function is crucial for implementing secure and flexible configuration.
+    It allows configuration files to contain placeholders for sensitive data
+    or environment-specific values. At runtime, these placeholders are replaced
+    by values from the operating system's environment variables, ensuring that
+    secrets are not hardcoded or committed to version control.
 
     Example:
         If `os.getenv("DB_PASSWORD")` is "mysecret", the input string
@@ -51,12 +62,13 @@ def load_config(config_file: str) -> Dict[str, Any]:
     """
     Loads a configuration from a YAML file and expands environment variables.
 
-    This function performs a two-step process:
-    1.  Reads the raw YAML file into a string.
-    2.  Expands any `${VAR}` placeholders in the string using environment variables.
-    3.  Parses the resulting string as YAML.
-
-    This approach allows for dynamic and secure configuration management.
+    Design Rationale:
+    This function implements a secure and dynamic configuration loading strategy.
+    It first reads the raw YAML content as a string, then uses `expand_env_vars`
+    to replace any environment variable placeholders, and finally parses the
+    expanded string as YAML. This two-step process ensures that sensitive
+    information is injected *before* parsing, preventing YAML parsers from
+    potentially misinterpreting placeholder syntax.
 
     Args:
         config_file: The path to the YAML configuration file.

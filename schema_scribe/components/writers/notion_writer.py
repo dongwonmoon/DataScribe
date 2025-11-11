@@ -1,9 +1,14 @@
 """
 This module provides `NotionWriter`, an implementation of `BaseWriter` for Notion.
 
-It uploads a generated data catalog to a new page within a specified parent
-page in Notion, using the `notion-client` library. It dynamically transforms
-catalog data into appropriate Notion blocks.
+Design Rationale:
+The `NotionWriter` is designed to transform the application's structured data
+catalog into a visually appealing and navigable Notion page. It handles the
+complexity of the Notion API's block-based structure, dynamically generating
+different types of blocks (headings, paragraphs, code blocks, tables) based
+on the content. A key design aspect is its ability to heuristically detect
+whether the input `catalog_data` originates from a traditional database scan
+or a dbt project, and then adapt its block generation accordingly.
 """
 
 import os
@@ -23,9 +28,9 @@ class NotionWriter(BaseWriter):
 
     This writer connects to the Notion API and constructs a new page with the
     catalog content. It orchestrates the process by:
-    1.  Connecting to the Notion API.
-    2.  Dynamically generating a list of Notion blocks based on the catalog
-        type (distinguishing between DB and dbt project catalogs).
+    1.  Connecting to the Notion API using a securely resolved API token.
+    2.  Dynamically generating a list of Notion blocks based on the detected
+        catalog structure (DB vs. dbt project).
     3.  Creating a new page under a specified parent with the generated blocks.
     """
 
@@ -39,11 +44,14 @@ class NotionWriter(BaseWriter):
         """
         Initializes the connection to the Notion API using the provided token.
 
-        It resolves the API token, which can be provided directly or as an
-        environment variable reference (e.g., `${NOTION_API_KEY}`).
+        Design Rationale:
+        API tokens are sensitive. This method securely resolves the API token,
+        allowing it to be provided directly or as an environment variable
+        reference (e.g., `${NOTION_API_KEY}`). This promotes secure configuration
+        practices.
         """
         token = self.params.get("api_token")
-        if token and token.startswith("${") and token.endswith("}"):
+        if token and token.startswith("${basedir}") and token.endswith("}"):
             env_var = token[2:-1]
             token = os.getenv(env_var)
             if not token:
@@ -109,7 +117,10 @@ class NotionWriter(BaseWriter):
             ) from e
 
     def _text_cell(self, content: str) -> List[Dict[str, Any]]:
-        """Creates a Notion table cell with plain text content."""
+        """
+        Creates a Notion table cell with plain text content.
+        This is a helper for constructing table blocks.
+        """
         return [{"type": "text", "text": {"content": content or ""}}]
 
     def _H2(self, text: str) -> Dict[str, Any]:
@@ -148,7 +159,11 @@ class NotionWriter(BaseWriter):
         }
 
     def _clean_mermaid_code(self, code: str) -> str:
-        """Removes Mermaid code fences (```mermaid ... ```) if they exist."""
+        """
+        Removes Mermaid code fences (```mermaid ... ```) if they exist.
+        This is necessary because the Mermaid block in Notion does not require
+        these fences.
+        """
         return code.replace("```mermaid", "").replace("```", "").strip()
 
     def _generate_notion_blocks(
@@ -157,8 +172,12 @@ class NotionWriter(BaseWriter):
         """
         Dynamically generates Notion blocks by detecting the catalog structure.
 
-        It heuristically determines if the catalog is from a 'db' or 'dbt'
-        workflow and calls the appropriate block generator.
+        Design Rationale:
+        This method uses a simple heuristic to determine if the input `catalog_data`
+        is from a traditional database scan (containing "tables" and "views" keys)
+        or a dbt project (containing model names as top-level keys with "columns").
+        This allows the NotionWriter to adapt its output format to the source
+        of the catalog.
 
         Args:
             catalog_data: The structured data catalog.
@@ -240,6 +259,7 @@ class NotionWriter(BaseWriter):
     def _generate_mermaid_erd(self, foreign_keys: List[Dict[str, str]]) -> str:
         """
         Generates Mermaid ERD code from foreign key data.
+        This helper is used for traditional database catalogs.
         """
         if not foreign_keys:
             return "erDiagram\n"
@@ -259,6 +279,7 @@ class NotionWriter(BaseWriter):
     ) -> List[Dict[str, Any]]:
         """
         Generates a list of Notion blocks for a traditional database catalog.
+        This includes ERD, views, and tables.
         """
         blocks = []
         blocks.append(self._H2("🚀 Entity Relationship Diagram (ERD)"))
@@ -304,6 +325,7 @@ class NotionWriter(BaseWriter):
     ) -> List[Dict[str, Any]]:
         """
         Generates a list of Notion blocks for a dbt project catalog.
+        This includes model summaries, lineage charts, and column details.
         """
         blocks = []
         for model_name, model_data in catalog_data.items():

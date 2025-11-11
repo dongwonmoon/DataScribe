@@ -18,9 +18,10 @@ try:
 except:
     uvicorn = None
 
-from schema_scribe.core.db_workflow import DbWorkflow
-from schema_scribe.core.dbt_workflow import DbtWorkflow
-from schema_scribe.core.lineage_workflow import LineageWorkflow
+from schema_scribe.config.manager import ConfigManager
+from schema_scribe.workflows.db_workflow import DbWorkflow
+from schema_scribe.workflows.dbt_workflow import DbtWorkflow
+from schema_scribe.workflows.lineage_workflow import LineageWorkflow
 from schema_scribe.core.exceptions import (
     DataScribeError,
     ConnectorError,
@@ -316,23 +317,33 @@ def scan_db(
     output_profile: str = typer.Option(
         None,
         "--output",
-        help="The output profile name from config.yaml to use for writing the catalog.",
+        help="The output profile name from config.yaml to use.",
     ),
 ):
     """
     Scans a database, generates documentation, and writes it to an output.
-
-    This command connects to a database specified by a profile, inspects its
-    schema, uses an LLM to generate descriptions for tables and columns, and
-    then writes the resulting data catalog to a specified output (e.g., a
-    Markdown file).
     """
-    DbWorkflow(
-        config_path=config_path,
-        db_profile=db_profile,
-        llm_profile=llm_profile,
-        output_profile=output_profile,
-    ).run()
+    # 1. ConfigManager is responsible for component creation
+    cfg_manager = ConfigManager(config_path)
+
+    # 2. Pre-create necessary components (dependencies)
+    db_connector, db_name = cfg_manager.get_db_connector(db_profile)
+    llm_client, _ = cfg_manager.get_llm_client(llm_profile)
+    writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+
+    # 3. 'Inject' instances into the workflow
+    # Now DbWorkflow doesn't need to know about config_path or profile names.
+    workflow = DbWorkflow(
+        db_connector=db_connector,
+        llm_client=llm_client,
+        writer=writer,
+        db_profile_name=db_name,
+        output_profile_name=out_name,
+        writer_params=writer_params,
+    )
+
+    # 4. Execute
+    workflow.run()
 
 
 @app.command(name="dbt")
@@ -399,17 +410,31 @@ def scan_dbt(
         logger.error("Error: --drift mode requires --db to be specified.")
         raise typer.Exit(code=1)
 
-    DbtWorkflow(
+    cfg_manager = ConfigManager(config_path)
+
+    llm_client, _ = cfg_manager.get_llm_client(llm_profile)
+
+    db_connector = None
+    if db_profile:
+        db_connector, _ = cfg_manager.get_db_connector(db_profile)
+
+    writer, out_name, writer_params = None, None, None
+    if output_profile:
+        writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+
+    workflow = DbtWorkflow(
+        llm_client=llm_client,
         dbt_project_dir=dbt_project_dir,
-        db_profile=db_profile,
-        llm_profile=llm_profile,
-        config_path=config_path,
-        output_profile=output_profile,
         update_yaml=update_yaml,
         check=check,
         interactive=interactive,
         drift=drift,
-    ).run()
+        db_connector=db_connector,
+        writer=writer,
+        writer_params=writer_params,
+        output_profile_name=out_name,
+    )
+    workflow.run()
 
 
 @app.command(name="lineage")
@@ -443,12 +468,19 @@ def generate_lineage(
     The resulting output is a single Mermaid.js graph, saved to a Markdown file,
     that shows the complete data flow from source tables to final models.
     """
-    LineageWorkflow(
-        config_path=config_path,
-        db_profile=db_profile,
+    cfg_manager = ConfigManager(config_path)
+
+    db_connector, _ = cfg_manager.get_db_connector(db_profile)
+    writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+
+    workflow = LineageWorkflow(
+        db_connector=db_connector,
+        writer=writer,
         dbt_project_dir=dbt_project_dir,
-        output_profile=output_profile,
-    ).run()
+        writer_params=writer_params,
+        output_profile_name=out_name,
+    )
+    workflow.run()
 
 
 @app.command(name="init")

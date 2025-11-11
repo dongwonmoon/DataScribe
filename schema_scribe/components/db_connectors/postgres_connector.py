@@ -1,6 +1,13 @@
 """
 This module provides a concrete implementation of the `SqlBaseConnector` for
-PostgreSQL databases, using the `psycopg2` library.
+PostgreSQL databases.
+
+Design Rationale:
+This class demonstrates the extensibility of `SqlBaseConnector`. It acts as a
+thin wrapper, only needing to implement the `connect` method using the `psycopg2`
+library. All other metadata extraction methods (`get_tables`, `get_columns`, etc.)
+are inherited directly from the base class, as PostgreSQL has excellent support
+for the standard `information_schema`.
 """
 
 import psycopg2
@@ -18,11 +25,9 @@ class PostgresConnector(SqlBaseConnector):
     """
     A concrete connector for PostgreSQL databases.
 
-    This class acts as a thin wrapper around `SqlBaseConnector`. It provides a
-    PostgreSQL-specific implementation of the `connect` method using the
-    `psycopg2` library. It relies on the parent class for all
-    `information_schema`-based metadata retrieval, demonstrating the reusability
-    of the base class.
+    This class extends `SqlBaseConnector` and provides a PostgreSQL-specific
+    implementation of the `connect` method using the `psycopg2` library.
+    It inherits all metadata extraction logic from its parent.
     """
 
     def __init__(self):

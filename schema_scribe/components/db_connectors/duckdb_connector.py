@@ -1,9 +1,19 @@
 """
 This module provides a `BaseConnector` implementation for DuckDB.
 
-Its key feature is its versatility, allowing it to read data from persistent
-database files, in-memory databases, local file systems (including globs),
-and even S3, presenting them all through a unified table/column interface.
+Design Rationale:
+The DuckDB connector is a powerful and versatile component designed to leverage
+DuckDB's unique ability to query data from multiple sources. Unlike traditional
+database connectors, it can operate in several modes:
+1.  **Standard Database Mode**: Connects to a persistent `.db` file.
+2.  **In-Memory File Query Mode**: Uses an in-memory DuckDB instance to treat
+    local files (e.g., CSV, Parquet), remote files (S3), or directories of
+    files as if they were tables. This is achieved using DuckDB's `read_auto`,
+    `glob`, and `httpfs` extension capabilities.
+
+This flexibility allows Schema Scribe to generate catalogs not just for
+structured databases but also for data lakes, local file caches, and more,
+all through the same `BaseConnector` interface.
 """
 
 import duckdb
@@ -18,21 +28,15 @@ logger = get_logger(__name__)
 
 class DuckDBConnector(BaseConnector):
     """
-    A versatile connector for reading data using DuckDB.
+    A versatile connector for reading data using DuckDB's file-querying capabilities.
 
     This connector implements the `BaseConnector` interface and can operate in
-    one of three modes based on the `path` parameter provided to `connect`:
-    1.  **Persistent DB Mode**: If `path` ends in `.db` or `.duckdb`, it connects
-        to a standard DuckDB database file and can introspect tables, views,
-        and foreign keys.
-    2.  **File/Directory Scan Mode**: If `path` is a file pattern (e.g., `*.csv`),
-        a local directory (`./data/`), or an S3 directory (`s3://...`), it uses
-        an in-memory DuckDB instance. In this mode, files are treated as tables.
-    3.  **Single File Mode**: If `path` is a single file, it is treated as a
-        single table.
-
-    It intelligently routes its methods (`get_tables`, `get_columns`) based on
-    the connection type to provide a unified interface for these different sources.
+    one of several modes based on the `path` parameter provided to `connect`:
+    - **Persistent DB Mode**: If `path` ends in `.db` or `.duckdb`, it connects
+      to a standard DuckDB database file for full introspection.
+    - **File/Directory Scan Mode**: If `path` is a file pattern (e.g., `*.csv`),
+      a local directory (`./data/`), or an S3 directory (`s3://...`), it uses
+      an in-memory DuckDB instance. In this mode, files are treated as tables.
     """
 
     def __init__(self):
@@ -47,9 +51,9 @@ class DuckDBConnector(BaseConnector):
         """
         Initializes a DuckDB connection based on the provided path.
 
-        The connection type is determined by the `path` parameter:
-        - If it ends in `.db` or `.duckdb`, it connects to a persistent file.
-        - Otherwise, it uses an in-memory database to query a file, pattern, or directory.
+        The connection behavior is determined by the `path` parameter:
+        - If `path` ends in `.db` or `.duckdb`, it connects to that file in read-only mode.
+        - Otherwise, it creates an in-memory database to query a file, pattern, or directory.
         - If the path starts with `s3://`, it automatically installs and loads the `httpfs` extension.
 
         Args:
@@ -110,8 +114,8 @@ class DuckDBConnector(BaseConnector):
         """
         Returns a list of "tables" based on the connection type.
 
-        - **Persistent DB Mode**: Returns actual tables and views from the DB.
-        - **Directory Scan Mode**: Returns file names within the target directory.
+        - **Persistent DB Mode**: Runs `SHOW ALL TABLES` to get actual tables and views.
+        - **Directory Scan Mode**: Uses `glob()` or `s3_glob()` to list file names.
         - **Single File Mode**: Returns the file path itself as a single "table".
 
         Returns:
@@ -151,8 +155,8 @@ class DuckDBConnector(BaseConnector):
         """
         Describes the columns of a table, view, or file-based dataset.
 
-        This implementation fetches column name, data type, nullability, and
-        primary key status to conform to the `BaseConnector` interface.
+        For file-based sources, this method uses `DESCRIBE` on a `read_auto`
+        subquery to infer the schema directly from the file.
 
         Args:
             table_name: The name of the table, view, or file to describe.
@@ -264,7 +268,9 @@ class DuckDBConnector(BaseConnector):
     def get_views(self) -> List[Dict[str, str]]:
         """
         Retrieves a list of all views and their SQL definitions.
-        This is only supported for persistent `.db` file connections.
+
+        Note: This is only supported for persistent `.db` or `.duckdb` file
+        connections. It will return an empty list for file/directory scans.
         """
         if not self.cursor:
             raise ConnectorError("Not connected to a DuckDB database.")
@@ -283,7 +289,9 @@ class DuckDBConnector(BaseConnector):
     def get_foreign_keys(self) -> List[Dict[str, str]]:
         """
         Retrieves all foreign key relationships.
-        This is only supported for persistent `.db` file connections.
+
+        Note: This is only supported for persistent `.db` or `.duckdb` file
+        connections. It will return an empty list for file/directory scans.
         """
         if not self.cursor:
             raise ConnectorError("Not connected to a DuckDB database.")
@@ -296,7 +304,7 @@ class DuckDBConnector(BaseConnector):
 
         logger.info("Fetching foreign key relationships...")
         try:
-            # DuckDB >= 0.9.0
+            # This query is for DuckDB v0.9.0 and later.
             self.cursor.execute(
                 """
                 SELECT
@@ -319,7 +327,8 @@ class DuckDBConnector(BaseConnector):
                 for row in self.cursor.fetchall()
             ]
         except duckdb.CatalogException:
-            # Fallback for older DuckDB versions
+            # This provides backward compatibility for older DuckDB versions
+            # that do not have the duckdb_constraints() function.
             logger.warning(
                 "Using legacy foreign key query for older DuckDB version."
             )
@@ -335,7 +344,10 @@ class DuckDBConnector(BaseConnector):
             ]
 
     def close(self):
-        """Closes the database connection if it is open."""
+        """
+        Safely closes the database connection if it is open.
+        This method is idempotent and can be called multiple times.
+        """
         if self.connection:
             logger.info("Closing DuckDB database connection.")
             self.connection.close()

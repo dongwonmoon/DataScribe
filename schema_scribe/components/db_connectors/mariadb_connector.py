@@ -2,9 +2,12 @@
 This module provides a concrete implementation of the `SqlBaseConnector` for
 MariaDB and MySQL databases.
 
-It uses the `mysql-connector-python` library to handle the connection and
-relies on the parent class for all `information_schema`-based metadata
-extraction.
+Design Rationale:
+This class is a prime example of the extensibility provided by `SqlBaseConnector`.
+It acts as a thin wrapper, only needing to implement the `connect` method using
+the `mysql-connector-python` library. All other metadata extraction methods
+(`get_tables`, `get_columns`, etc.) are inherited directly from the base class,
+as MariaDB/MySQL follow the standard `information_schema` conventions.
 """
 
 import mysql.connector
@@ -22,7 +25,8 @@ class MariaDBConnector(SqlBaseConnector):
     A concrete connector for MariaDB and MySQL databases.
 
     This class extends `SqlBaseConnector` and implements the `connect` method
-    using the `mysql-connector-python` library.
+    using the `mysql-connector-python` library. It inherits all metadata
+    extraction logic from its parent.
 
     A key detail for this connector is that for MySQL/MariaDB, the 'schema' is
     synonymous with the 'database'. Therefore, the `dbname` parameter is used
@@ -40,6 +44,10 @@ class MariaDBConnector(SqlBaseConnector):
         This method fulfills the contract required by `SqlBaseConnector` by
         setting the `self.connection`, `self.cursor`, `self.dbname`, and
         `self.schema_name` attributes upon a successful connection.
+
+        Note: For MySQL/MariaDB, the 'schema' is the 'database'. This method
+        assigns the `dbname` value to `self.schema_name` to align with the
+        base class's expectations.
 
         Args:
             db_params: A dictionary of connection parameters. Expected keys

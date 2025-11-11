@@ -2,8 +2,16 @@
 This module provides `JsonWriter`, an implementation of `BaseWriter` for
 generating a data catalog in JSON format.
 
-It simply serializes the catalog data dictionary into a nicely formatted
-JSON file, which is useful for programmatic access or as an intermediate format.
+Design Rationale:
+The `JsonWriter` serves as a fundamental output option for the Schema Scribe
+application. Its primary purpose is to serialize the structured catalog data
+into a standard, machine-readable JSON format. This is particularly useful for:
+- **Programmatic Access**: Allowing other applications or scripts to easily
+  consume and process the generated metadata.
+- **Intermediate Format**: Serving as a robust intermediate representation
+  before further transformation or loading into other systems.
+- **Debugging**: Providing a clear, human-readable (when formatted) view of
+  the raw catalog data.
 """
 
 from typing import Dict, Any
@@ -23,7 +31,8 @@ class JsonWriter(BaseWriter):
     Implements `BaseWriter` to write the data catalog to a JSON file.
 
     This writer provides a straightforward way to dump the raw, structured
-    catalog data into a machine-readable format.
+    catalog data into a machine-readable format, suitable for programmatic
+    consumption or as an intermediate data representation.
     """
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):

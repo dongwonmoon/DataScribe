@@ -2,9 +2,17 @@
 This module provides a concrete implementation of the `SqlBaseConnector` for
 Snowflake data warehouses.
 
-It uses the `snowflake-connector-python` library and overrides several metadata
-methods from the base class to accommodate Snowflake's specific SQL dialect
-and information schema structure.
+Design Rationale:
+While Snowflake supports an `information_schema`, its implementation has quirks
+that make the generic queries in `SqlBaseConnector` unreliable. Specifically:
+- The `information_schema` is a database-level object, not a schema-level one,
+  requiring queries to be fully qualified (e.g., `"my_db".information_schema.tables`).
+- Snowflake-specific `SHOW` commands (e.g., `SHOW IMPORTED KEYS`) are often more
+  reliable and performant for metadata extraction.
+
+For these reasons, this connector inherits from `SqlBaseConnector` to maintain a
+common interface but overrides most of its methods to use a more robust,
+Snowflake-specific implementation.
 """
 
 import snowflake.connector
@@ -23,10 +31,8 @@ class SnowflakeConnector(SqlBaseConnector):
     A concrete connector for Snowflake data warehouses.
 
     This class extends `SqlBaseConnector` but overrides most of its metadata
-    methods. This is necessary because Snowflake's `information_schema` is a
-    database-level object, requiring queries to be fully qualified (e.g.,
-    `"my_db".information_schema.tables`). It also uses Snowflake-specific
-    commands like `SHOW IMPORTED KEYS` for more reliable metadata retrieval.
+    methods to handle Snowflake's specific SQL dialect and information schema
+    structure.
     """
 
     def __init__(self):
@@ -86,6 +92,7 @@ class SnowflakeConnector(SqlBaseConnector):
         if not self.cursor or not self.dbname:
             raise ConnectorError("Must connect to the DB first.")
 
+        # Snowflake's information_schema is at the database level.
         query = f"""
             SELECT table_name
             FROM "{self.dbname}".information_schema.tables
@@ -100,16 +107,18 @@ class SnowflakeConnector(SqlBaseConnector):
         """
         Retrieves column metadata for the specified table.
 
-        Overrides the base implementation to query Snowflake's `information_schema`
-        and correctly identify primary keys.
+        This method first uses `SHOW PRIMARY KEYS` to reliably identify primary
+        key columns, then queries the `information_schema` for general column
+        metadata. This two-step process is more robust than a single query.
         """
         if not self.cursor or not self.dbname:
             raise ConnectorError("Must connect to the DB first.")
 
-        # Snowflake requires SHOW PRIMARY KEYS to reliably get PK info.
+        # Snowflake requires `SHOW PRIMARY KEYS` to reliably get PK info.
         self.cursor.execute(f'SHOW PRIMARY KEYS IN TABLE "{table_name}"')
         pk_columns = {row[4] for row in self.cursor.fetchall()}
 
+        # Now fetch all column info from the database-level information_schema.
         query = f"""
             SELECT column_name, data_type, is_nullable
             FROM "{self.dbname}".information_schema.columns
@@ -139,6 +148,7 @@ class SnowflakeConnector(SqlBaseConnector):
         if not self.cursor or not self.dbname:
             raise ConnectorError("Must connect to the DB first.")
 
+        # Snowflake's information_schema is at the database level.
         query = f"""
             SELECT table_name, view_definition
             FROM "{self.dbname}".information_schema.views
@@ -156,8 +166,9 @@ class SnowflakeConnector(SqlBaseConnector):
         """
         Retrieves all foreign key relationships using `SHOW IMPORTED KEYS`.
 
-        Overrides the base `information_schema` implementation because this
-        Snowflake-specific command is more reliable.
+        This method overrides the base `information_schema` implementation because
+        the Snowflake-specific `SHOW IMPORTED KEYS` command is more reliable and
+        directly provides the necessary information.
         """
         if not self.cursor or not self.dbname or not self.schema_name:
             raise ConnectorError("Must connect to the DB first.")

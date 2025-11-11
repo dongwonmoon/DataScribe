@@ -1,7 +1,18 @@
 """
 This module provides `OllamaClient`, a concrete implementation of the
-`BaseLLMClient` interface for the Ollama API, allowing interaction with
-locally-run language models.
+`BaseLLMClient` interface for the Ollama API.
+
+Design Rationale:
+The `OllamaClient` is a key component for users who wish to leverage locally-run
+language models instead of relying on cloud-based services. This offers several
+advantages:
+- **Privacy**: Data never leaves the user's machine.
+- **Cost**: No API fees for model usage.
+- **Offline Capability**: Can function without an internet connection once models
+  are downloaded.
+
+The client is designed to be robust, automatically pulling the specified model
+on initialization to ensure it is available for use.
 """
 
 import ollama
@@ -22,7 +33,8 @@ class OllamaClient(BaseLLMClient):
     This class implements the `BaseLLMClient` interface to provide a standardized
     way to generate text using models hosted via Ollama. Its responsibilities are:
     1.  Connect to a local Ollama instance at a specified host URL.
-    2.  Pull the specified model on initialization to ensure it is available.
+    2.  Proactively `pull` the specified model on initialization to ensure it is
+        available, simplifying the user experience.
     3.  Wrap the `chat` API call to provide a consistent `get_description` method.
     """
 
@@ -34,13 +46,16 @@ class OllamaClient(BaseLLMClient):
 
         This method creates a client for the specified Ollama host and performs
         a `pull` operation to ensure the requested model is available locally.
+        Note that this initial pull may take some time on the first run for a
+        given model.
 
         Args:
             model: The name of the Ollama model to use (e.g., "llama3").
             host: The host URL of the Ollama API.
 
         Raises:
-            ConfigError: If the client fails to initialize or pull the model.
+            ConfigError: If the client fails to initialize or pull the model,
+                         often due to an unreachable host.
         """
         try:
             logger.info(

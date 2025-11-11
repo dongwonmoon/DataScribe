@@ -1,9 +1,13 @@
 """
-Main FastAPI application for the Schema Scribe server.
+This module defines the main FastAPI application for the Schema Scribe server.
 
-This module defines the FastAPI application and its API endpoints. It provides
-a RESTful API wrapper around the core `DbWorkflow` and `DbtWorkflow` classes,
-allowing them to be triggered programmatically.
+Design Rationale:
+The server provides a RESTful API wrapper around the core workflows, enabling
+programmatic or UI-driven execution. It mirrors the dependency injection pattern
+used by the CLI (`app.py`), using the `ConfigManager` to build and inject
+components into the workflows. This ensures consistent behavior between the
+CLI and the server. Error handling is managed at the API boundary, translating
+internal application errors into appropriate HTTP status codes.
 """
 
 import os
@@ -13,9 +17,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 
-from schema_scribe.core.workflow_helpers import load_config
-from schema_scribe.core.db_workflow import DbWorkflow
-from schema_scribe.core.dbt_workflow import DbtWorkflow
+from schema_scribe.config.manager import ConfigManager
+from schema_scribe.workflows.db_workflow import DbWorkflow
+from schema_scribe.workflows.dbt_workflow import DbtWorkflow
 from schema_scribe.core.exceptions import DataScribeError, CIError
 from schema_scribe.utils.logger import get_logger
 
@@ -79,7 +83,9 @@ def get_profiles():
         HTTPException(500): For other configuration loading errors.
     """
     try:
-        config = load_config("config.yaml")
+        # Use ConfigManager to safely load and access the config
+        cfg_manager = ConfigManager("config.yaml")
+        config = cfg_manager.config
         return {
             "db_connections": list(config.get("db_connections", {}).keys()),
             "llm_providers": list(config.get("llm_providers", {}).keys()),
@@ -101,8 +107,9 @@ def run_db_workflow(request: RunDbWorkflowRequest):
     """
     Runs the 'db' documentation workflow.
 
-    This endpoint triggers a synchronous run of the `DbWorkflow`. It maps internal
-    `DataScribeError` exceptions to HTTP 400 Bad Request responses.
+    This endpoint triggers a synchronous run of the `DbWorkflow`. It uses the
+    `ConfigManager` to build the necessary components based on the profile names
+    provided in the request, then injects them into the workflow.
 
     Args:
         request: A `RunDbWorkflowRequest` with the db, llm, and output profiles.
@@ -114,11 +121,23 @@ def run_db_workflow(request: RunDbWorkflowRequest):
         logger.info(
             f"Received request to run 'db' workflow with profile: {request.db_profile}"
         )
+        cfg_manager = ConfigManager("config.yaml")
+
+        # Build components using ConfigManager
+        db_connector, db_name = cfg_manager.get_db_connector(request.db_profile)
+        llm_client, _ = cfg_manager.get_llm_client(request.llm_profile)
+        writer, out_name, writer_params = cfg_manager.get_writer(
+            request.output_profile
+        )
+
+        # Inject components into the workflow
         workflow = DbWorkflow(
-            config_path="config.yaml",
-            db_profile=request.db_profile,
-            llm_profile=request.llm_profile,
-            output_profile=request.output_profile,
+            db_connector=db_connector,
+            llm_client=llm_client,
+            writer=writer,
+            db_profile_name=db_name,
+            output_profile_name=out_name,
+            writer_params=writer_params,
         )
         workflow.run()
         return {
@@ -142,8 +161,8 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
     """
     Runs the 'dbt' documentation workflow with various modes.
 
-    This endpoint triggers a synchronous run of the `DbtWorkflow`. It is designed
-    for programmatic use, especially in CI/CD pipelines.
+    This endpoint triggers a synchronous run of the `DbtWorkflow`, using the
+    `ConfigManager` to build and inject dependencies.
 
     - **CI Failures**: If `check` or `drift` mode is used and a failure is
       detected, this endpoint returns an **HTTP 409 Conflict** status, which
@@ -170,16 +189,29 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
                 status_code=400, detail="Drift mode requires a db_profile."
             )
 
+        cfg_manager = ConfigManager("config.yaml")
+
+        # Build components
+        llm_client, _ = cfg_manager.get_llm_client(request.llm_profile)
+        db_connector = None
+        if request.db_profile:
+            db_connector, _ = cfg_manager.get_db_connector(request.db_profile)
+        writer, out_name, writer_params = cfg_manager.get_writer(
+            request.output_profile
+        )
+
+        # Inject components into the workflow
         workflow = DbtWorkflow(
+            llm_client=llm_client,
             dbt_project_dir=request.dbt_project_dir,
-            db_profile=request.db_profile,
-            llm_profile=request.llm_profile,
-            config_path="config.yaml",
-            output_profile=request.output_profile,
             update_yaml=request.update_yaml,
             check=request.check,
             interactive=False,  # Interactive mode is CLI-only
             drift=request.drift,
+            db_connector=db_connector,
+            writer=writer,
+            writer_params=writer_params,
+            output_profile_name=out_name,
         )
         workflow.run()
         return {
@@ -203,12 +235,15 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
 
 # --- Static File Serving ---
 
-# Get the directory where this server file is located.
+# Get the directory where this server file is located. This is necessary
+# to reliably find the 'static' folder regardless of where the application
+# is run from.
 SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(SERVER_DIR, "static")
 
 
-# Serve the main index.html file from the root path.
+# Serve the main index.html file from the root path. This allows the app
+# to be served at the base URL (e.g., http://localhost:8000).
 @app.get("/", include_in_schema=False)
 async def read_index():
     """Serves the main index.html file for the frontend."""
@@ -222,4 +257,6 @@ async def read_index():
 
 # Mount the 'static' directory to serve all other static files (CSS, JS, etc.).
 # This must come after the root endpoint to ensure the root is served correctly.
+# The `html=True` argument enables it to serve 'index.html' for sub-paths,
+# which is useful for single-page applications (SPAs).
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

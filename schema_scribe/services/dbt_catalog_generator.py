@@ -12,7 +12,7 @@ from typing import Dict, Any
 from ruamel.yaml import YAML
 
 from schema_scribe.core.interfaces import BaseLLMClient, BaseConnector
-from schema_scribe.core.dbt_parser import DbtManifestParser
+from schema_scribe.services.dbt_parser import DbtManifestParser
 from schema_scribe.prompts import (
     DBT_MODEL_PROMPT,
     DBT_COLUMN_PROMPT,

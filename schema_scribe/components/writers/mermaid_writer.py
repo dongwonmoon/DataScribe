@@ -2,6 +2,14 @@
 This module provides `MermaidWriter`, a specialized `BaseWriter` implementation
 used by the `lineage` workflow to save a Mermaid.js graph string to a
 Markdown file.
+
+Design Rationale:
+The `MermaidWriter` is designed for a very specific purpose: to output a
+pre-generated Mermaid graph definition into a Markdown file. This is primarily
+used by the `lineage` workflow, which constructs a comprehensive lineage graph
+and then passes it to this writer. The writer's role is minimal, focusing
+solely on formatting the Mermaid code within a Markdown code block, making it
+ready for rendering in platforms that support Mermaid.js (e.g., GitHub, Confluence).
 """
 
 from typing import Dict, Any
@@ -17,17 +25,19 @@ class MermaidWriter(BaseWriter):
     """
     Implements `BaseWriter` to write a Mermaid graph to a Markdown file.
 
-    This writer is designed for a single purpose: to take a complete Mermaid
-    graph definition from the catalog data and save it within a Markdown
-    code block, ready for rendering in supported platforms like GitHub.
+    This writer is designed for a single purpose: to take a complete,
+    pre-generated Mermaid graph definition from the catalog data and save it
+    within a Markdown code block, ready for rendering in supported platforms
+    like GitHub.
     """
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):
         """
         Writes the Mermaid graph from catalog_data to a Markdown file.
 
-        It looks for the `"mermaid_graph"` key in the `catalog_data` dictionary.
-        If the key is not found, it writes a placeholder graph.
+        It expects the `catalog_data` dictionary to contain a key
+        `"mermaid_graph"` with the full Mermaid string. If this key is not
+        found, it writes a placeholder graph.
 
         Args:
             catalog_data: A dictionary expected to contain the key

@@ -1,11 +1,16 @@
 """
-This module defines `SqlBaseConnector`, a reusable base class for connectors
-that use a standard `information_schema`.
+This module defines `SqlBaseConnector`, a reusable and extensible base class
+for connectors that interact with SQL databases supporting a standard
+`information_schema`.
 
-It abstracts the common logic for fetching metadata (tables, columns, views,
-foreign keys) shared across many SQL databases. This allows developers to
-support a new SQL database with minimal effort, often only needing to implement
-the `connect` method.
+Design Rationale:
+The purpose of this class is to abstract away the common, boilerplate SQL
+queries required to fetch metadata (tables, columns, views, foreign keys).
+By providing default implementations based on ANSI SQL standards for the
+`information_schema`, it allows developers to add support for a new SQL-based
+database with minimal effort. Often, a developer only needs to subclass this
+and implement the database-specific `connect` method, inheriting all other
+functionality.
 """
 
 from abc import abstractmethod
@@ -27,8 +32,8 @@ class SqlBaseConnector(BaseConnector):
     `get_foreign_keys`.
 
     Subclasses are required to implement the `connect` method. They can also
-    override any of the metadata methods if their SQL dialect differs from the
-    standard implementation provided here.
+    override any of the metadata methods if their specific SQL dialect differs
+    from the standard implementation provided here.
     """
 
     def __init__(self):
@@ -53,7 +58,7 @@ class SqlBaseConnector(BaseConnector):
         attributes for the other base methods to function correctly:
         - `self.connection`: The active database connection object.
         - `self.cursor`: The database cursor for executing queries.
-        - `self.dbname`: The name of the database.
+        - `self.dbname`: The name of the database being connected to.
         - `self.schema_name`: The name of the schema to be scanned.
         """
         pass
@@ -109,7 +114,8 @@ class SqlBaseConnector(BaseConnector):
         logger.info(
             f"Fetching columns for table: '{self.schema_name}.{table_name}'"
         )
-        # This query joins with table_constraints to identify primary keys.
+        # This query joins columns with table constraints to identify primary keys.
+        # LEFT JOINs are used because not all columns are part of a constraint.
         query = """
             SELECT
                 c.column_name,
@@ -250,7 +256,8 @@ class SqlBaseConnector(BaseConnector):
                 "Connection not established. The 'connect' method must be called first."
             )
 
-        # Use double quotes for identifiers to be ANSI SQL compliant
+        # Use double quotes for identifiers to be ANSI SQL compliant. This is
+        # safer than f-string interpolation for table/column names in the query body.
         query = f"""
         SELECT
             COUNT(*) AS total_count,
@@ -304,6 +311,7 @@ class SqlBaseConnector(BaseConnector):
     def close(self):
         """
         Safely closes the database cursor and connection if they are open.
+        This method is idempotent and can be called multiple times.
         """
         if self.cursor:
             self.cursor.close()

@@ -1,9 +1,18 @@
 """
-This module provides `DbtYamlWriter`, the engine for the `dbt --update`,
-`--check`, `--interactive`, and `--drift` commands.
+This module provides `DbtYamlWriter`, the core engine for managing dbt
+`schema.yml` documentation across various operational modes.
 
-It uses the `ruamel.yaml` library to parse and write dbt `schema.yml` files,
-which is crucial for preserving comments and formatting.
+Design Rationale:
+The `DbtYamlWriter` is a critical component for automating dbt documentation.
+Its design prioritizes:
+- **Fidelity**: It uses `ruamel.yaml` to ensure that existing comments,
+  formatting, and ordering within `schema.yml` files are preserved during
+  updates. This is crucial for maintaining code quality and developer experience.
+- **Flexibility**: It supports multiple operational modes (`update`, `check`,
+  `interactive`, `drift`), allowing it to be used in diverse scenarios, from
+  fully automated CI/CD pipelines to interactive documentation generation.
+- **Extensibility**: It dynamically discovers `schema.yml` files across the
+  dbt project, adapting to various project structures.
 """
 
 from typing import Dict, List, Any
@@ -23,13 +32,16 @@ class DbtYamlWriter:
     """
     Handles reading, updating, and writing dbt schema YAML files.
 
-    This class is a stateful orchestrator for dbt YAML modifications. It works by:
-    1.  Finding and loading all `schema.yml` files into memory.
-    2.  Building a map of which file documents which dbt model.
-    3.  Iterating through an AI-generated catalog.
-    4.  For each model, updating or creating its documentation in memory based
-        on the selected mode ('update', 'check', 'interactive', 'drift').
-    5.  Finally, writing the modified YAML data back to the files.
+    This class acts as a stateful orchestrator for dbt YAML modifications.
+    Its lifecycle involves:
+    1.  **Discovery**: Finding all relevant `schema.yml` files within the dbt project.
+    2.  **Loading & Mapping**: Loading these files into memory using `ruamel.yaml`
+        and building a map to quickly locate which file documents which dbt model.
+    3.  **In-Memory Update**: Iterating through an AI-generated catalog and
+        applying updates or creating new documentation stubs in memory, based
+        on the selected operational mode.
+    4.  **Persistence**: Finally, writing the modified YAML data back to the files
+        if the mode permits.
     """
 
     def __init__(self, dbt_project_dir: str, mode: str = "update"):
@@ -38,7 +50,7 @@ class DbtYamlWriter:
 
         Args:
             dbt_project_dir: The absolute path to the root of the dbt project.
-            mode: The operation mode. This dictates how changes are handled.
+            mode: The operational mode. This dictates how changes are handled.
                   Must be one of 'update', 'check', 'interactive', or 'drift'.
 
         Raises:
@@ -66,6 +78,13 @@ class DbtYamlWriter:
         This is the main entrypoint for the writer. It orchestrates finding,
         parsing, and updating the YAML files. The exact behavior depends on the
         mode the writer was initialized with.
+
+        The process involves:
+        1.  Loading all existing `schema.yml` files into memory.
+        2.  Identifying models that need updates (already documented) and models
+            that need new documentation stubs (undocumented).
+        3.  Applying changes in memory based on the `mode`.
+        4.  If in 'update' or 'interactive' mode, persisting the changes to disk.
 
         Args:
             catalog_data: The AI-generated catalog data, keyed by model name.
@@ -115,7 +134,13 @@ class DbtYamlWriter:
 
     def _find_schema_files(self) -> List[str]:
         """
-        Finds all dbt schema YAML files in the project's model paths.
+        Finds all dbt schema YAML files in the project's model, seed, and snapshot paths.
+
+        Design Rationale:
+        This method ensures that the writer can discover all relevant `schema.yml`
+        files, regardless of their location within the standard dbt project
+        structure. It explicitly excludes `dbt_project.yml` to avoid parsing
+        the main project configuration as a schema file.
         """
         model_paths = [
             os.path.join(self.dbt_project_dir, "models"),
@@ -139,7 +164,13 @@ class DbtYamlWriter:
 
     def _load_and_map_existing_yamls(self):
         """
-        Loads all found schema.yml files and maps models to their file paths.
+        Loads all found `schema.yml` files into memory and builds a map
+        from dbt model names to their respective file paths.
+
+        Design Rationale:
+        This mapping (`self.model_to_file_map`) is crucial for efficiently
+        locating and updating the correct YAML file when processing an
+        AI-generated catalog. It avoids redundant file searches.
         """
         schema_files = self._find_schema_files()
         for file_path in schema_files:
@@ -171,8 +202,21 @@ class DbtYamlWriter:
         self, file_path: str, model_name: str, ai_model_data: Dict[str, Any]
     ) -> bool:
         """
-        Updates a single model's documentation within a loaded YAML file.
-        Returns True if a change was made or is needed.
+        Updates a single model's documentation within a loaded YAML file in memory.
+
+        This method handles:
+        - Updating model-level descriptions.
+        - Updating column-level details (descriptions, meta, tags, tests).
+        - Performing drift checks if the writer is in 'drift' mode.
+
+        Args:
+            file_path: The path to the `schema.yml` file containing the model.
+            model_name: The name of the dbt model to update.
+            ai_model_data: The AI-generated data for the model.
+
+        Returns:
+            `True` if a change was made or is needed (e.g., in 'check' mode),
+            otherwise `False`.
         """
         file_changed = False
         data = self.yaml_files.get(file_path)
@@ -245,8 +289,22 @@ class DbtYamlWriter:
         self, model_name: str, ai_model_data: Dict[str, Any]
     ) -> bool:
         """
-        Creates a new model stub and adds it to the appropriate schema.yml file.
-        Returns True if a change is needed.
+        Creates a new model stub (documentation block) and adds it to the
+        appropriate `schema.yml` file in memory.
+
+        Design Rationale:
+        This method intelligently determines where to place new model documentation.
+        If a `schema.yml` file already exists in the same directory as the model's
+        SQL file, the stub is appended to it. Otherwise, a new `schema.yml` file
+        is created.
+
+        Args:
+            model_name: The name of the new dbt model.
+            ai_model_data: The AI-generated data for the new model.
+
+        Returns:
+            `True` if a change is needed (e.g., in 'check' mode) or if a stub
+            was created/appended, otherwise `False`.
         """
         if self.mode == "check":
             logger.warning(
@@ -316,7 +374,21 @@ class DbtYamlWriter:
     ) -> bool:
         """
         Handles the logic for a single missing key based on the writer's mode.
-        Returns True if a change was made or is needed.
+
+        This method encapsulates the core decision-making for how to apply
+        AI-generated documentation:
+        - In 'check' mode, it only logs a warning and indicates a change is needed.
+        - In 'interactive' mode, it prompts the user for confirmation/editing.
+        - In 'update' or 'drift' mode, it directly applies the change.
+
+        Args:
+            config_node: The YAML node (model or column) to update.
+            key: The key within the node to update (e.g., 'description').
+            ai_value: The AI-generated value for the key.
+            node_log_name: A descriptive name for logging purposes (e.g., "model 'my_model'").
+
+        Returns:
+            `True` if a change was made or is needed, otherwise `False`.
         """
         log_target = f"'{key}' on {node_log_name}"
         if self.mode == "check":
@@ -342,7 +414,16 @@ class DbtYamlWriter:
     ) -> str | None:
         """
         Prompts the user to Accept, Edit, or Skip an AI-generated suggestion.
-        Returns the value to save, or None to skip.
+
+        This method is used exclusively in 'interactive' mode.
+
+        Args:
+            node_log_name: A descriptive name for logging purposes.
+            key: The key being updated (e.g., 'description').
+            ai_value: The AI-generated value to suggest to the user.
+
+        Returns:
+            The value to save, or `None` if the user chose to skip.
         """
         typer.echo(
             typer.style(
@@ -366,7 +447,11 @@ class DbtYamlWriter:
         return final_value
 
     def _write_modified_files_to_disk(self):
-        """Writes all in-memory YAML objects that have been modified to disk."""
+        """
+        Writes all in-memory YAML objects that have been modified to disk.
+
+        This method is called only in 'update' or 'interactive' modes.
+        """
         logger.info(f"Writing changes to {len(self.files_to_write)} file(s)...")
         for file_path in self.files_to_write:
             try:

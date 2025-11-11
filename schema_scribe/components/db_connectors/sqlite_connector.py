@@ -2,8 +2,12 @@
 This module provides a concrete implementation of the `BaseConnector` for
 SQLite databases.
 
-It handles the connection to a SQLite database file and uses SQLite's
-built-in `PRAGMA` commands for all metadata extraction.
+Design Rationale:
+This connector implements the `BaseConnector` interface directly, rather than
+inheriting from `SqlBaseConnector`. This is a deliberate design choice because
+SQLite's native `PRAGMA` commands are generally more efficient and direct for
+metadata extraction than querying the `information_schema`, which is not as
+robustly supported in SQLite as in other SQL databases.
 """
 
 import sqlite3
@@ -21,10 +25,9 @@ class SQLiteConnector(BaseConnector):
     """
     A self-contained connector for SQLite databases.
 
-    This class implements the `BaseConnector` interface directly, providing
-    connectivity and schema extraction for SQLite databases. It uses SQLite's
-    built-in `PRAGMA` commands for efficient metadata retrieval instead of
-    relying on an `information_schema`.
+    This class implements the `BaseConnector` interface, providing connectivity
+    and schema extraction for SQLite databases. It uses SQLite's built-in
+    `PRAGMA` commands for efficient metadata retrieval.
     """
 
     def __init__(self):
@@ -64,7 +67,7 @@ class SQLiteConnector(BaseConnector):
 
     def get_tables(self) -> List[str]:
         """
-        Retrieves a list of all table names in the connected database.
+        Retrieves a list of all table names by querying `sqlite_master`.
 
         Returns:
             A list of strings, where each string is a table name.
@@ -108,14 +111,15 @@ class SQLiteConnector(BaseConnector):
 
         logger.info(f"Fetching columns for table: '{table_name}'")
         self.cursor.execute(f"PRAGMA table_info('{table_name}');")
-        # Row format: (cid, name, type, notnull, dflt_value, pk)
+        # Row format from PRAGMA table_info:
+        # (cid, name, type, notnull, dflt_value, pk)
         columns = [
             {
                 "name": row[1],
                 "type": row[2],
                 "description": "",  # Not available from PRAGMA
-                "is_nullable": row[3] == 0,
-                "is_pk": row[5] == 1,
+                "is_nullable": row[3] == 0,  # 'notnull' is 0 for nullable
+                "is_pk": row[5] == 1,  # 'pk' is 1 for primary key
             }
             for row in self.cursor.fetchall()
         ]
@@ -124,7 +128,7 @@ class SQLiteConnector(BaseConnector):
 
     def get_views(self) -> List[Dict[str, str]]:
         """
-        Retrieves a list of all views and their SQL definitions.
+        Retrieves a list of all views and their SQL definitions from `sqlite_master`.
 
         Returns:
             A list of dictionaries, where each represents a view and contains
@@ -150,7 +154,8 @@ class SQLiteConnector(BaseConnector):
         """
         Retrieves all foreign key relationships using `PRAGMA foreign_key_list`.
 
-        It iterates through each table to find its foreign key constraints.
+        It iterates through each table in the database to find its foreign key
+        constraints and assembles a complete list.
 
         Returns:
             A list of dictionaries, each representing a foreign key, conforming
@@ -167,7 +172,8 @@ class SQLiteConnector(BaseConnector):
 
         for table_name in tables:
             try:
-                # Row format: (id, seq, table, from, to, on_update, on_delete, match)
+                # Row format from PRAGMA foreign_key_list:
+                # (id, seq, table, from, to, on_update, on_delete, match)
                 self.cursor.execute(f"PRAGMA foreign_key_list('{table_name}');")
                 fk_results = self.cursor.fetchall()
                 for fk in fk_results:
@@ -191,7 +197,7 @@ class SQLiteConnector(BaseConnector):
         self, table_name: str, column_name: str
     ) -> Dict[str, Any]:
         """
-        Generates profile stats for a SQLite column using a single query.
+        Generates profile stats for a SQLite column using a standard SQL query.
 
         Args:
             table_name: The name of the table containing the column.
@@ -257,6 +263,7 @@ class SQLiteConnector(BaseConnector):
     def close(self):
         """
         Safely closes the database connection if it is open.
+        This method is idempotent and can be called multiple times.
         """
         if self.connection:
             logger.info("Closing SQLite database connection.")

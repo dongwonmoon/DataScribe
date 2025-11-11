@@ -2,9 +2,13 @@
 This module provides `DbtMarkdownWriter`, an implementation of `BaseWriter` for
 generating a dbt project catalog in Markdown format.
 
-It is designed to work with the specific data structure produced by the
-`DbtCatalogGenerator`, converting it into a human-readable Markdown file that
-includes model descriptions, column details, and Mermaid.js lineage charts.
+Design Rationale:
+The `DbtMarkdownWriter` is specifically tailored to present the rich metadata
+extracted from a dbt project. It translates the structured output of the
+`DbtCatalogGenerator` (which includes model descriptions, column details, and
+Mermaid.js lineage charts) into a human-readable Markdown document. This allows
+dbt project documentation to be easily shared, version-controlled, and rendered
+in various platforms (e.g., GitHub, Confluence).
 """
 
 from typing import Dict, Any
@@ -23,15 +27,16 @@ class DbtMarkdownWriter(BaseWriter):
     Implements `BaseWriter` to write a dbt project catalog to a Markdown file.
 
     This class transforms the dbt-specific catalog dictionary into a Markdown
-    document, creating a dedicated section for each dbt model.
+    document, creating a dedicated section for each dbt model with its
+    summary, lineage, and column details.
     """
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):
         """
         Writes the dbt catalog data to a Markdown file.
 
-        The generated file contains a section for each dbt model, with the
-        following structure per model:
+        The generated file contains a main title for the project and then a
+        dedicated section for each dbt model. Each model section includes:
         1.  An AI-generated model summary.
         2.  An AI-generated Mermaid.js lineage chart for the model's parents.
         3.  A table of the model's columns with their data types and
