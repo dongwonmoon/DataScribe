@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Scribe</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 40px; background: #f7f7f7; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        h1 { color: #333; }
+        pre { background: #eee; padding: 15px; border-radius: 4px; overflow-x: auto; }
+        button { background: #007aff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #0056b3; }
+        #status { margin-top: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>✍️ Data Scribe Server</h1>
+        <p>This is the placeholder UI. The API is running.</p>
+        <p>A full React/Vue frontend app can be built and placed here.</p>
+        
+        <h2>Test API (DB Workflow)</h2>
+        <p>This button calls the backend API to run a 'db' workflow. (Assumes you have profiles set up in config.yaml)</p>
+        <button onclick="runDbWorkflow()">Run 'db' Workflow</button>
+        <pre id="status">Click the button to test...</pre>
+    </div>
+
+    <script>
+        // This is a simple API client to test our backend.
+        async function runDbWorkflow() {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = "Loading profiles...";
+            
+            try {
+                // 1. Get available profiles
+                const profileRes = await fetch('/api/profiles');
+                if (!profileRes.ok) throw new Error('Failed to fetch profiles.');
+                const profiles = await profileRes.json();
+                
+                // --- Use the first available profile for this test ---
+                const db_profile = profiles.db_connections[0];
+                const llm_profile = profiles.llm_providers[0];
+                const output_profile = profiles.output_profiles[0];
+                
+                if (!db_profile || !llm_profile || !output_profile) {
+                    throw new Error('Not enough profiles configured in config.yaml for this test.');
+                }
+
+                statusEl.textContent = `Running 'db' workflow with:
+- DB: ${db_profile}
+- LLM: ${llm_profile}
+- Output: ${output_profile}
+... please wait ...`;
+
+                // 2. Call the workflow API
+                const runRes = await fetch('/api/run/db', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        db_profile: db_profile,
+                        llm_profile: llm_profile,
+                        output_profile: output_profile
+                    })
+                });
+
+                const result = await runRes.json();
+
+                if (!runRes.ok) {
+                    // Show CIError (409) or other errors (400, 500)
+                    throw new Error(`API Error ${runRes.status}: ${result.detail}`);
+                }
+
+                statusEl.textContent = `Success! ${result.message}`;
+                
+            } catch (err) {
+                statusEl.textContent = `Error: ${err.message}`;
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>

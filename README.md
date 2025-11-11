@@ -149,6 +149,19 @@ curl -X GET "http://localhost:8000/api/profiles" -H "accept: application/json"
 
 This will return a JSON object listing all the database, LLM, and output profiles defined in your `config.yaml`.
 
+**4. Example: Trigger a dbt workflow**
+You can also trigger core workflows. For example, to run a `dbt --check` on a project:
+```bash
+curl -X POST "http://localhost:8000/api/run/dbt" \
+-H "Content-Type: application/json" \
+-d '{
+  "dbt_project_dir": "/path/to/your/dbt/project",
+  "check": true
+}'
+```
+
+If the documentation is outdated, the API will return a `409 Conflict` status code, making it easy to integrate with CI/CD pipelines.
+
 ---
 
 ## 💡 Extensibility

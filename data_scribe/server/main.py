@@ -5,11 +5,15 @@ This module defines the FastAPI application and its API endpoints. It provides
 a web-based interface to run Data Scribe's core documentation workflows,
 reusing the existing workflow classes for consistency.
 """
+import os
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+from pydantic import BaseModel
 
-from data_scribe.core.workflow_helpers import load_and_validate_config
+from data_scribe.core.workflow_helpers import load_config
 from data_scribe.core.db_workflow import DbWorkflow
 from data_scribe.core.dbt_workflow import DbtWorkflow
 from data_scribe.core.exceptions import DataScribeError, CIError
@@ -22,6 +26,9 @@ app = FastAPI(
     title="Data Scribe Server",
     description="API for running Data Scribe documentation workflows."
 )
+
+SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(SERVER_DIR, "static")
 
 # --- API Request/Response Models ---
 
@@ -38,7 +45,11 @@ class RunDbWorkflowRequest(BaseModel):
     output_profile: str
     
 class RunDbtWorkflowRequest(BaseModel):
-    """Request body for running the 'dbt' workflow."""
+    """
+    Defines the request body for running the 'dbt' workflow.
+    
+    The mode flags (`update_yaml`, `check`, `drift`) are mutually exclusive.
+    """
     dbt_project_dir: str
     llm_profile: Optional[str] = None
     
@@ -48,7 +59,7 @@ class RunDbtWorkflowRequest(BaseModel):
     drift: bool = False
     
     # Other args
-    db_profile: Optional[str] = None # Required for drift
+    db_profile: Optional[str] = None # Required for drift mode
     output_profile: Optional[str] = None
 
 # --- API Endpoints ---
@@ -69,7 +80,7 @@ def get_profiles():
     """
     try:
         # We assume config.yaml is in the directory where the server is run
-        config = load_and_validate_config("config.yaml") 
+        config = load_config("config.yaml") 
         return {
             "db_connections": list(config.get("db_connections", {}).keys()),
             "llm_providers": list(config.get("llm_providers", {}).keys()),
@@ -129,8 +140,26 @@ def run_db_workflow(request: RunDbWorkflowRequest):
 @app.post("/api/run/dbt")
 def run_dbt_workflow(request: RunDbtWorkflowRequest):
     """
-    Runs the 'dbt' documentation workflow.
-    Note: 'interactive' mode is not supported via API.
+    Runs the 'dbt' documentation workflow with various modes.
+
+    This endpoint triggers a synchronous run of the `DbtWorkflow`. It can be
+    used to generate a catalog, update `schema.yml` files, or run CI checks.
+    The `interactive` mode is not supported via the API.
+
+    Args:
+        request: A `RunDbtWorkflowRequest` defining the project directory
+                 and the execution mode (`update_yaml`, `check`, `drift`).
+
+    Returns:
+        A success message if the workflow completes.
+
+    Raises:
+        HTTPException(400): For bad requests, such as specifying multiple
+                            mutually exclusive modes.
+        HTTPException(409): For CI-related failures. If `check` is true and
+                            docs are outdated, or if `drift` is true and drift
+                            is detected, this status is returned.
+        HTTPException(500): For any other unexpected errors.
     """
     try:
         logger.info(f"Received request to run 'dbt' workflow for dir: {request.dbt_project_dir}")
@@ -167,6 +196,7 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
         return {"status": "success", "message": f"dbt workflow completed for {request.dbt_project_dir}."}
     
     except CIError as e:
+        # Return a 409 Conflict for CI failures (check or drift)
         logger.warning(f"CI check failed during API call: {e}")
         raise HTTPException(status_code=409, detail=str(e))
     except DataScribeError as e:
@@ -177,8 +207,11 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 @app.get("/")
-def read_root():
-    """
-    A simple root endpoint to confirm the server is running.
-    """
-    return {"message": "Data Scribe Server is running. Go to /docs for API."}
+async def read_index():
+    """Serves the main index.html file."""
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if not os.path.exists(index_path):
+        return {"message": "Data Scribe Server is running. Frontend 'index.html' not found."}
+    return FileResponse(index_path)
+
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
