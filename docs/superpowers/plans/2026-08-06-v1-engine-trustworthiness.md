@@ -131,6 +131,100 @@ is_pk가 catalog에 전달되지 않음(catalog_generator.py:172-179).
 
 ---
 
+## Slice 0.5: Fixture Workshop (evidence for the gated Landscape slice)
+
+User research (docs/superpowers/specs/2026-08-07-db-orientation-problem-research.md) established the author's real problem: "opening the database is scary" — (b) overwhelmed by scale, (c) meaningless names. The Landscape Report (Slice 8) is gated on evidence; this slice builds the synthetic fixtures that produce it, and those fixtures also serve the acceptance suite (Slice 7) and change-classification tests (Slice 5). One asset, three consumers.
+
+### Task 0.5.1: Legacy fixture builder
+
+**Files:**
+- Create: `schema_scribe/tests/fixtures/db_fixtures.py`
+- Create: `schema_scribe/tests/fixtures/__init__.py`
+- Create: `scripts/build_fixture_dbs.py`
+- Test: `schema_scribe/tests/unit/test_db_fixtures.py` (new)
+
+**Interfaces:**
+- Consumes: nothing (stdlib `sqlite3` only).
+- Produces: `build_sqlite(path: str, variant: str) -> None` with variants:
+  - `"clean"` — the existing demo shape: a few tables, meaningful names, declared FKs.
+  - `"legacy-rich"` — 100+ tables, cryptic names (e.g., `TBL_CUST_MST_2021`, `T_SLS_ORD_HDR`), dense declared FKs.
+  - `"legacy-poor"` — same cryptic scale but almost no declared FKs (the FK-centrality worst case).
+  - `"legacy-conventions"` — meaningful-ish names but organized by convention (`dim_`, `fact_`, `stg_`, `_audit`).
+  Also `VARIANT_NAMES = ("clean", "legacy-rich", "legacy-poor", "legacy-conventions")` and a deterministic table generator (seeded, no randomness) so fixtures are reproducible.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+@pytest.mark.parametrize("variant", db_fixtures.VARIANT_NAMES)
+def test_fixture_builds_deterministically(tmp_path, variant):
+    p1 = tmp_path / f"{variant}-1.db"
+    p2 = tmp_path / f"{variant}-2.db"
+    db_fixtures.build_sqlite(str(p1), variant)
+    db_fixtures.build_sqlite(str(p2), variant)
+    assert p1.read_bytes() == p2.read_bytes()  # deterministic
+    conn = sqlite3.connect(str(p1))
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+    conn.close()
+    if variant.startswith("legacy"):
+        assert len(tables) >= 100
+    else:
+        assert len(tables) >= 3
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest schema_scribe/tests/unit/test_db_fixtures.py -v`
+Expected: FAIL — module does not exist.
+
+- [ ] **Step 3: Minimal implementation**
+
+`db_fixtures.py` per the Interfaces block. Deterministic generation: seed a PRNG with a fixed constant per variant, or generate names algorithmically (e.g., `f"TBL_{prefix}_{year}"` over a fixed prefix list). `scripts/build_fixture_dbs.py` is a thin CLI (`--out-dir`, `--variant`) so the author can materialize a legacy DB to "play with the tool" manually.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest schema_scribe/tests/unit/test_db_fixtures.py -v`
+Expected: PASS.
+
+- [ ] **Step 5: Commit** (title `test: add deterministic legacy DB fixture builder`)
+
+### Task 0.5.2: Landscape probe protocol (counterfactual run)
+
+**Files:**
+- Create: `docs/superpowers/specs/2026-08-07-landscape-probe-results.md` (filled in by this task)
+- Test: none — this is a manual evidence task with a written protocol
+
+**Interfaces:**
+- Consumes: fixture DBs from Task 0.5.1, the existing `db` command (pre- or post-Slice 1 read-only — run it against the fixture).
+
+- [ ] **Step 1: Materialize the legacy fixtures**
+
+Run: `python scripts/build_fixture_dbs.py --out-dir /tmp/schema-fixtures --variant legacy-rich` (and `legacy-poor`).
+
+- [ ] **Step 2: Counterfactual run**
+
+Run the existing `db` command against `legacy-rich` (mocked or local LLM; the point is the deterministic output — ERD, table list, summaries):
+
+```bash
+schema-scribe db --db <fixture-profile> --output <markdown-profile> 2>&1 | head -100
+```
+
+- [ ] **Step 3: The author judges (recorded, one question set fixed in advance)**
+
+Questions (fixed before looking at output — do not score after the fact):
+1. Does the output tell you where to start? (scale cure / (b))
+2. Does the output decode the table names? (name cure / (c))
+3. What single feature would have cured the fear you remember?
+Record the answers verbatim in the probe-results spec. The FK density of `legacy-rich` vs `legacy-poor` (tables with declared FKs / total tables) is recorded too — it decides whether FK-centrality survives (Slice 8 gate).
+
+- [ ] **Step 4: Commit** (title `docs: record landscape probe results`)
+
+### Slice 0.5 gate
+
+- [ ] Probe results recorded; the Slice 8 gate decision (implement / defer) is written in the probe-results spec.
+- [ ] Merge to parent branch (ff).
+
+---
+
 ## Slice 1: Read-Only Enforcement (G1)
 
 ### Task 1.1: SQLite read-only connection
@@ -538,6 +632,45 @@ Expected: PASS.
 
 - [ ] **Step 5: Commit** (title `feat: propagate primary-key markers into catalog and markdown`)
 
+### Task 2.5: Composite foreign-key pairing (panel finding, C2)
+
+The panel found FK extraction is broken for composite FKs: SQLBase joins FK columns without ordinal pairing (cross-products composite columns), DuckDB returns only the first column of a composite FK (`column_names[1]`). FK quality matters for both the catalog (A) and FK-centrality (Slice 8).
+
+**Files:**
+- Modify: `schema_scribe/components/db_connectors/sql_base_connector.py:203-235`
+- Modify: `schema_scribe/components/db_connectors/duckdb_connector.py:305-327`
+- Test: `schema_scribe/tests/unit/db_connectors/test_sql_base_connector.py` (extend), `schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py` (extend)
+
+**Interfaces:**
+- Consumes: `get_foreign_keys()` returning per-FK dicts with `source_table`, `source_column`, `target_table`, `target_column`.
+- Produces: for a composite FK on `(a, b) -> (x, y)`, exactly two dicts with correctly paired columns — no cross-product, no dropped columns.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+def test_composite_fk_pairs_columns_by_ordinal():
+    # mock cursor returns PRAGMA/information_schema rows for a composite FK
+    # on (a, b) -> (x, y); assert exactly two dicts with
+    # (source_column="a", target_column="x") and (source_column="b", target_column="y")
+```
+
+(Adapt to each connector's actual row shape: SQLBase joins FK rows to PK rows via `constraint_name` — pair on the ordinal/seq field instead; DuckDB already reads `duckdb_constraints()` — use `column_names`/`referenced_column_names` element-wise instead of `[1]`.)
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Expected: FAIL — cross-product (SQLBase) / single column (DuckDB).
+
+- [ ] **Step 3: Minimal implementation**
+
+Pair composite FK columns by their ordinal position within the constraint, element-wise, in both connectors.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pytest schema_scribe/tests/unit/db_connectors/test_sql_base_connector.py schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py -v`
+Expected: PASS.
+
+- [ ] **Step 5: Commit** (title `fix: pair composite foreign-key columns by ordinal`)
+
 ### Slice 2 gate
 
 - [ ] Run `./scripts/verify.sh` — expected: PASS.
@@ -763,7 +896,7 @@ Expected: PASS immediately (generation completes before the writer runs, db_work
 
 **Interfaces:**
 - Consumes: catalog dict from `CatalogGenerator` (shape pinned by Slice 0: tables with `columns` incl. `is_pk`, top-level `views`, `foreign_keys`).
-- Produces: `SchemaState.snapshot(catalog) -> dict` (pure), `SchemaState.save(snapshot: dict, path: str) -> None` (atomic, reusing the Task 4.1 pattern), `SchemaState.load(path: str) -> dict | None` (`None` on missing/corrupt JSON — never raise). Snapshot shape: `{"tables": {name: {"columns": {col: type}, "pk": [col, ...], "fks": [source_col, ...]}}, "views": [names], "generated_at": iso}`. Sidecar path convention: `<output_filename>.schema-state.json`. Sidecar written only for file writers that receive `output_filename`, and only after a successful `writer.write`.
+- Produces: `SchemaState.snapshot(catalog) -> dict` (pure), `SchemaState.save(snapshot: dict, path: str) -> None` (atomic, reusing the Task 4.1 pattern), `SchemaState.load(path: str) -> dict | None` (`None` on missing/corrupt JSON — never raise). Snapshot shape: `{"tables": {name: {"columns": {col: type}, "pk": [col, ...], "fks": [{"source": col, "target": "table.col"}, ...]}}, "views": [names], "generated_at": iso}`. The `fks` entries carry **both source and target** so the classifier (Task 5.2) can detect an FK target change, not only FK presence (panel finding C10). Sidecar path convention: `<output_filename>.schema-state.json`. Sidecar written only for file writers that receive `output_filename`, and only after a successful `writer.write`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -811,7 +944,7 @@ Expected: PASS.
 
 **Interfaces:**
 - Consumes: previous snapshot (Task 5.1) + current snapshot.
-- Produces: `SchemaState.classify(prev: dict | None, curr: dict) -> {"added": [...], "removed": [...], "structurally_changed": [...]}` — structural change = column type change, PK set change, FK set change, or column added/removed within an existing table; unchanged tables appear in neither list. `prev=None` → everything is `added`.
+- Produces: `SchemaState.classify(prev: dict | None, curr: dict) -> {"added": [...], "removed": [...], "structurally_changed": [...]}` — structural change = column type change, PK set change, FK set change (compare `fks` as (source, target) pairs — a changed FK target counts), or column added/removed within an existing table; unchanged tables appear in neither list. `prev=None` → everything is `added`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1025,8 +1158,106 @@ Expected: PASS.
 
 ---
 
+## Slice 8: Landscape Report (GATED — evidence decides)
+
+User research (docs/superpowers/specs/2026-08-07-db-orientation-problem-research.md) found the author's real problem is "opening the database is scary" — scale + meaningless names. The 3-panel review verdict: direction B (orientation tool) is not a replacement north star — the ERD already ships in `MarkdownWriter`, the real delta is LLM hints, and "understand" is not measurable by deterministic gates — so B is implemented here as a **gated feature**, not a promise change. PRODUCT.md is unchanged.
+
+**GATE (from Slice 0.5 probe):** this slice is implemented only if the probe results show the deterministic pillars work on the legacy fixtures — specifically FK-centrality must produce non-empty results on `legacy-rich` (FK density recorded), and the author's counterfactual judgment must identify a concrete, buildable missing feature. If the probe fails, this slice is deferred and the findings go back to the research spec.
+
+### Task 8.1: Deterministic landscape service
+
+**Files:**
+- Create: `schema_scribe/services/landscape.py`
+- Modify: `schema_scribe/workflows/db_workflow.py` (landscape path)
+- Test: `schema_scribe/tests/unit/test_landscape.py` (new, using the Slice 0.5 fixtures)
+
+**Interfaces:**
+- Consumes: `get_tables()` names, `get_columns()` per table, `get_foreign_keys()` pairs (pure function inputs — no DB connection needed beyond collection).
+- Produces: `build_landscape(tables, columns_by_table, foreign_keys) -> dict`:
+  - `scale`: table count, column count, per-type distribution.
+  - `clusters`: tables grouped by naming convention (prefix/suffix regexes: `^dim_`, `^fact_`, `^stg_`, `_audit$`, `^TBL_`, `^T_SLS_`-style, else `"other"`).
+  - `core_tables`: FK-centrality ranking (in-degree + out-degree on the FK graph), top N.
+  - `relationship_map`: FK graph nodes/edges (isolated tables included as single nodes).
+  Deterministic and testable — no LLM in this task.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+def test_landscape_on_legacy_fixture(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    db_fixtures.build_sqlite(str(db_path), "legacy-rich")
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+    tables = connector.get_tables()
+    cols = {t: connector.get_columns(t) for t in tables}
+    fks = connector.get_foreign_keys()
+    connector.close()
+    landscape = build_landscape(tables, cols, fks)
+    assert landscape["scale"]["tables"] == len(tables)
+    assert landscape["core_tables"]  # non-empty on legacy-rich
+    assert set(landscape["relationship_map"]["nodes"]) == set(tables)  # isolated tables included
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Expected: FAIL — module does not exist.
+
+- [ ] **Step 3: Minimal implementation**
+
+`landscape.py` per the Interfaces block — pure functions over the collected metadata. Ordering must be deterministic (sort all outputs).
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest schema_scribe/tests/unit/test_landscape.py -v`
+Expected: PASS.
+
+- [ ] **Step 5: Commit** (title `feat: add deterministic database landscape analysis`)
+
+### Task 8.2: Landscape output (Markdown) + optional LLM hints
+
+**Files:**
+- Modify: `schema_scribe/components/writers/markdown_writer.py` (landscape section) or `schema_scribe/workflows/db_workflow.py` (new `landscape` command path)
+- Test: `schema_scribe/tests/unit/writers/test_markdown_writer.py` (extend), `schema_scribe/tests/unit/test_landscape.py` (extend)
+
+**Interfaces:**
+- Consumes: `build_landscape` (Task 8.1).
+- Produces: a `db --landscape` command path that renders the landscape as Markdown (scale summary, clusters, core tables, relationship map) WITHOUT constructing the LLM client; an optional `--landscape-hints` flag adds LLM name-decoding hints per cluster/top table, subject to the same disclosure rules as Slice 3 (payload disclosed before transmission; provider chosen by the user).
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+def test_landscape_render_includes_clusters_and_core(tmp_path):
+    ...  # build landscape dict from the legacy fixture, render via MarkdownWriter landscape path
+    out = ...  # rendered markdown
+    assert "Clusters" in out and "Core tables" in out
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Expected: FAIL — no landscape render path.
+
+- [ ] **Step 3: Minimal implementation**
+
+Per the Interfaces block. The hints path reuses the existing prompt/disclosure machinery (Slice 3) — no new egress channels.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pytest schema_scribe/tests/unit/test_landscape.py schema_scribe/tests/unit/writers/test_markdown_writer.py -v`
+Expected: PASS.
+
+- [ ] **Step 5: Commit** (title `feat: render database landscape with optional LLM hints`)
+
+### Slice 8 gate
+
+- [ ] `./scripts/verify.sh` — expected: PASS.
+- [ ] Probe results and this slice's existence both recorded; merge to parent (ff).
+- [ ] If the gate probe rejected the slice, record the decision in the research spec and remove Slice 8 from the active plan instead of shipping a hedged feature.
+
+---
+
 ## Out Of Scope (tracked elsewhere)
 
+- Direction B as a product promise (PRODUCT.md stays A) — the Landscape Report is a gated feature (Slice 8), not a contract change.
 - Evaluation fixture + human review rubric (PRODUCT.md:114-116) — deferred, docs/TESTING.md:30-34.
 - Benchmark harness: query count / elapsed / LLM calls (PRODUCT.md:117) — deferred; the existing `call_count == 12` assertion (test_db_workflow.py:277) is the seed.
 - Drift checks in CI, dbt removed-model detection (`dbt --check` reverse set difference, dbt_yaml_writer.py:100-104) — product-sequence step 2.
