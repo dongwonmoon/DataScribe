@@ -14,3 +14,13 @@ cd "${repo_root}"
 "${python_bin}" -m pytest schema_scribe/tests
 "${python_bin}" -m build
 "${python_bin}" -m schema_scribe.main --help >/dev/null
+"${python_bin}" -m json.tool opencode.json >/dev/null
+"${python_bin}" - <<'PY'
+import json
+from pathlib import Path
+
+config = json.loads(Path("opencode.json").read_text())
+instructions = config.get("instructions")
+assert instructions == ["agent-instructions/opencode.md"]
+assert Path(instructions[0]).is_file()
+PY
