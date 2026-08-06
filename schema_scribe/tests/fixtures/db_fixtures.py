@@ -63,12 +63,12 @@ def _legacy_fks(table, stem, kind, year, dense):
         return []
     if kind == "DTL":
         if dense:
-            return [(f"{stem.lower()}_hdr_id", f"T_{stem}_HDR_{year}")]
+            return [(f"{stem.lower()}_hdr_id", f"TBL_{stem}_HDR_{year}")]
         return []
     # TRN
     if dense:
         return [
-            (f"{stem.lower()}_hdr_id", f"T_{stem}_HDR_{year}"),
+            (f"{stem.lower()}_hdr_id", f"TBL_{stem}_HDR_{year}"),
             (f"{stem.lower()}_mst_id", f"TBL_{stem}_MST_{year}"),
         ]
     return []
