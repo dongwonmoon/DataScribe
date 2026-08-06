@@ -4,18 +4,20 @@
 
 **Goal:** Make the local database documentation engine (the `db` command) trustworthy and measurable enough to be SchemaScribe v1, per `docs/PRODUCT.md`.
 
-**Architecture:** This plan is product-sequence step 1 ("local engine trustworthy and measurable"). It hardens trust boundaries (read-only enforcement, disclosure), fixes the profiling contract, makes output writes atomic, adds baseline-based change classification and a review loop, then qualifies connectors through a shared acceptance suite. No new dependencies; every change starts with a failing test that proves the current defect.
+**Architecture:** This plan is product-sequence step 1 ("local engine trustworthy and measurable"). It hardens trust boundaries (read-only enforcement, disclosure), fixes the profiling contract, makes output writes atomic, adds baseline-based change classification and a review loop, then qualifies connectors through a shared acceptance suite. No new dependencies; every change starts with a failing test that proves the current defect. A real-composition probe (Slice 0) runs first because several later tasks depend on the actual catalog dict shape.
 
-**Tech Stack:** Python 3.11/3.12, pytest (+ pytest-mock), Typer CLI, stdlib `sqlite3`/`os`/`tempfile`. Drivers already in extras: `psycopg2`, `mysql-connector-python`, `duckdb`, `snowflake-connector-python`.
+**Tech Stack:** Python 3.11/3.12, pytest (+ pytest-mock), Typer CLI, stdlib `sqlite3`/`os`/`tempfile`/`json`. Drivers already in extras: `psycopg2`, `mysql-connector-python`, `duckdb`, `snowflake-connector-python`.
 
 ## Global Constraints
 
 - Verification gate: `./scripts/verify.sh` must pass after every slice (72 tests today + new tests).
-- Red test first: each task's first step is a test that fails on the current code — that test is the permanent regression guard.
+- Red test first: each task's first step is a test that fails on the current code — that test is the permanent regression guard. A test that fails for the wrong reason (e.g., `ValueError` on a wrong parameter key) is not a valid red test; fix the test until it fails on the defect it claims to prove.
 - No raw-row or sample-value collection or transmission (PRODUCT.md:62-64). Aggregate stats only.
 - No new runtime dependencies; stdlib only for atomic writes (`tempfile`, `os.replace`).
 - Read-only core path: writers that mutate a database (PostgresCommentWriter) are out of v1 scope (PRODUCT.md:69-70).
 - The `db` workflow's data boundary: tables, columns, types, PKs, FKs, and exactly three aggregate stats (`null_ratio`, `distinct_count`, `is_unique`).
+- Connectors read `db_params` key `"path"` for sqlite/duckdb (verify per connector before writing tests — the audit found tests in this plan originally used wrong keys).
+- When a task changes behavior that an existing test pins, that existing test must be updated **in the same task**, and the update named explicitly.
 - Commit style: conventional title + body "문제 상황 / 증거 / 해결 / 기각한 대안" (see AGENTS.md).
 - Narrow topic branches; merge slice to parent only after its gate passes.
 
@@ -23,24 +25,109 @@
 
 # Gap Audit (Evidence)
 
-Audit of contract `docs/PRODUCT.md` vs current source on `dev` (4 independent source audits, all claims verified against source):
+Audit of contract `docs/PRODUCT.md` vs current source on `dev` (4 independent source audits; claims verified against source on 2026-08-06):
 
 | # | Contract clause | State | Evidence |
 |---|---|---|---|
 | G1 | Read-only connection on core path (PRODUCT.md:43,61) | **Missing on 4/5 connectors** | `sqlite3.connect(db_path)` no `mode=ro` (sqlite_connector.py:57); postgres no `default_transaction_read_only` (postgres_connector.py:61-67); mariadb no `SET SESSION TRANSACTION READ ONLY` (mariadb_connector.py:72-78); snowflake no session hardening (snowflake_connector.py:69-76). Only DuckDB file mode enforces it (duckdb_connector.py:76-89). |
 | G2 | Aggregate profiling without source rows (PRODUCT.md:44-45,62-64) | **Implemented** | All queries hit catalog/PRAGMA tables; profile = `COUNT(*)`, `SUM(CASE IS NULL)`, `COUNT(DISTINCT)` only (sql_base_connector.py:261-267, sqlite_connector.py:214-220, duckdb_connector.py:223-229). No `SELECT` of source rows anywhere. |
-| G3 | Disclosure before external LLM (PRODUCT.md:46-47,66-67) | **Missing** | No `--dry-run`/preview/confirm anywhere; `db` command has no such flag (app.py:301-346). What leaves the machine: identifiers, types, view SQL verbatim, 3 stats (catalog_generator.py:134-170,199-203; prompts.py:12-38,129-137). |
+| G3 | Disclosure before external LLM (PRODUCT.md:46-47,66-67) | **Missing** | No `--dry-run`/preview/confirm anywhere; `db` command has no such flag (app.py:301-346). What leaves the machine: identifiers, types, **view SQL verbatim** (catalog_generator.py:194-203), 3 stats (catalog_generator.py:134-170; prompts.py:12-38,129-137). |
 | G4 | Interface vs behavior drift | **Partial** | `get_column_profile` docstring documents min/max/avg (interfaces.py:139-146) that no connector returns; connectors return `"N/A"` strings where float/bool documented (sqlite_connector.py:257-261, sql_base_connector.py:305-309). |
-| G5 | PK accuracy | **Partial** | DuckDB `is_pk` always False (`row[3] == "PRI"` on DESCRIBE that yields NULL, duckdb_connector.py:186); SQLite marks only first column of composite PK (`row[5] == 1`, sqlite_connector.py:122); SqlBase returns int not bool (sql_base_connector.py:150). |
-| G6 | Atomic writes / failure preserves last output (PRODUCT.md:53) | **Missing** | All file writers `open(path, "w")` truncate-then-stream (markdown_writer.py:95, json_writer.py:57, dbt_markdown_writer.py:62, mermaid_writer.py:66). Generation failure preserves old file only incidentally (writer runs after full generation, db_workflow.py:94-113); write-phase failure destroys it. No `os.replace` anywhere. |
+| G5 | PK accuracy + propagation | **Partial + broken** | DuckDB `is_pk` from `row[3] == "PRI"` (duckdb_connector.py:186); SQLite marks only first composite-PK column (`row[5] == 1`, sqlite_connector.py:122); SqlBase returns int not bool (sql_base_connector.py:150). **`CatalogGenerator` drops `is_pk` entirely** — enriched columns carry only name/type/description/profile_stats (catalog_generator.py:172-179), so PKs never reach writers or any downstream consumer. |
+| G6 | Atomic writes / failure preserves last output (PRODUCT.md:53) | **Missing** | File writers `open(path, "w")` truncate-then-stream (markdown_writer.py:95, json_writer.py:57, dbt_markdown_writer.py:62, mermaid_writer.py:66). Generation failure preserves old file only incidentally (writer runs after full generation, db_workflow.py:94-113); write-phase failure destroys it. No `os.replace` anywhere. |
 | G7 | Change classification unchanged/added/removed/structurally-changed (PRODUCT.md:51-52) | **Missing** | No persisted baseline, no comparison in `db` workflow. dbt `--check` detects added only, never removed (dbt_yaml_writer.py:100-104). |
 | G8 | Review before replacement (PRODUCT.md:48-49) | **Missing for `db`** | Only dbt `--interactive` has accept/edit/skip (dbt_yaml_writer.py:398-447). `db` has no `--check`/`--interactive`. |
 | G9 | Shared acceptance suite per adapter (PRODUCT.md:55-57) | **Absent** | No parametrized suite; only SQLite has real-engine tests; postgres/mariadb/snowflake mock connect params only; duckdb mocks the library (tests/unit/db_connectors/). No connector can claim v1 support today. |
-| G10 | Test hygiene | **Defective** | Dead conftest fixture patches nonexistent modules (`schema_scribe.core.db_workflow.init_llm`, tests/conftest.py:42-45); workflow tests mock `get_tables` returning dicts while the real connector returns `List[str]` (test_db_workflow.py:28-32 vs sqlite_connector.py:68) — real composition never exercised. |
+| G10 | Test hygiene | **Defective** | Dead conftest fixture patches nonexistent modules (`schema_scribe.core.db_workflow.init_llm`, tests/conftest.py:42-45); workflow tests mock `get_tables` returning dicts while the real connector returns `List[str]` (test_db_workflow.py:28-32 vs sqlite_connector.py:68); prompt assertion pins the dict shape (`"Table: {'name': 'users', 'comment': None}"`, test_db_workflow.py:258) — real composition never exercised. |
 
 **In-scope adapter defect noted, deferred:** PostgresCommentWriter is dead-on-arrival because `generate_catalog()` closes the connection before `writer.write()` runs (db_workflow.py:71-76,113; postgres_comment_writer.py:73-76). It is a mutating writer, out of v1 scope; reworked when adapters are qualified.
 
 **Deferred to product-evaluation work (tracked, not in this plan):** eval fixture + human review rubric, benchmark harness (query count / elapsed / LLM calls), drift-in-CI support, hosted demo. See docs/TESTING.md:30-34 and CURRENT_FOCUS.md.
+
+---
+
+## Slice 0: Composition Probe (falsifies the catalog-shape assumptions Slices 2-6 rely on)
+
+### Task 0.1: Real-composition smoke test
+
+The cheapest experiment that can falsify the plan's core assumption: `DbWorkflow` + **real** `SQLiteConnector` + mocked LLM + real `MarkdownWriter` produces a valid catalog with a known shape. Every later slice (profile contract, disclosure, state snapshot, classification) is written against this shape, so it must be pinned first.
+
+**Files:**
+- Create: `schema_scribe/tests/integration/test_db_workflow_composition.py`
+- Test: the new file itself (this task is test-only until it exposes defects, which then get fixed here)
+
+**Interfaces:**
+- Consumes: `SQLiteConnector.connect(db_params)` with key `"path"`; `DbWorkflow(db_connector, llm_client, writer, db_profile_name=..., writer_params=...)`.
+- Produces: a pinned catalog dict shape: `catalog["tables"][i]` = `{"name", "columns": [{"name", "type", "description", "profile_stats", "is_pk"}], "views": [...], "foreign_keys": [...]}` (exact keys as produced by `CatalogGenerator` — record deviations, do not assume).
+
+- [ ] **Step 1: Write the probe test**
+
+```python
+import json
+import sqlite3
+from unittest.mock import MagicMock
+
+from schema_scribe.components.db_connectors.sqlite_connector import SQLiteConnector
+from schema_scribe.components.writers.markdown_writer import MarkdownWriter
+from schema_scribe.core.interfaces import BaseLLMClient
+from schema_scribe.workflows.db_workflow import DbWorkflow
+
+
+def test_real_sqlite_composition(tmp_path):
+    db_path = tmp_path / "fixture.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL)")
+    conn.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id))")
+    conn.commit()
+    conn.close()
+
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "draft description"
+    out = tmp_path / "catalog.md"
+    writer = MarkdownWriter()
+    wf = DbWorkflow(connector, llm, writer, db_profile_name="fixture",
+                    writer_params={"output_filename": str(out)})
+    wf.run()
+    assert out.exists()
+    assert "draft description" in out.read_text()
+```
+
+- [ ] **Step 2: Run to observe the actual result**
+
+Run: `pytest schema_scribe/tests/integration/test_db_workflow_composition.py -v`
+Expected: FAIL or PASS — record which, and record the exact catalog dict shape by printing it (add a temporary `print(json.dumps(catalog))` if needed; remove before commit). This observation is the input to every later task.
+
+- [ ] **Step 3: Fix composition defects surfaced here**
+
+Known candidates (from the audit, to verify): `get_tables` returns `List[str]` while `CatalogGenerator` iterates objects (verify it handles strings — sqlite_connector.py:68 vs catalog_generator.py:125-133); FK/profile queries fail on the fixture (e.g., `SUM(CASE WHEN "email" IS NULL ...)` on VARCHAR is fine, but record real behavior); `is_pk` is dropped from enriched columns (catalog_generator.py:172-179). Fix only what blocks the test; the catalog-shape observation is recorded in the commit body.
+
+- [ ] **Step 4: Run full suite to confirm no regressions**
+
+Run: `./scripts/verify.sh`
+Expected: PASS (or only the newly-recorded deviation, documented).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add schema_scribe/tests/integration/test_db_workflow_composition.py
+git commit -m "test: probe real connector-workflow-writer composition
+
+문제 상황: workflow 테스트가 dict 반환 get_tables 목(mock)으로 실제 커넥터와
+다른 계약을 가정해, 카탈로그 실제 형태가 검증된 적 없음.
+증거: gap audit G10/G5 — test_db_workflow.py:28-32 vs sqlite_connector.py:68;
+is_pk가 catalog에 전달되지 않음(catalog_generator.py:172-179).
+해결: 실제 SQLiteConnector+MarkdownWriter 조합 스모크 테스트와 관찰된
+카탈로그 형태 기록.
+기각한 대안: 형태 검증 없이 슬라이스 진행(이후 모든 슬라이스의 입력
+가정이 무너질 위험)."
+```
+
+### Slice 0 gate
+
+- [ ] Run `./scripts/verify.sh` — expected: PASS.
+- [ ] Merge to parent branch (ff). Record the observed catalog shape in the commit body; Slice 2+ tasks were written against it.
 
 ---
 
@@ -49,16 +136,16 @@ Audit of contract `docs/PRODUCT.md` vs current source on `dev` (4 independent so
 ### Task 1.1: SQLite read-only connection
 
 **Files:**
-- Modify: `schema_scribe/components/db_connectors/sqlite_connector.py:57`
+- Modify: `schema_scribe/components/db_connectors/sqlite_connector.py:51-60`
 - Test: `schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py`
 
 **Interfaces:**
-- Consumes: `connect(self, db_params: Dict[str, Any])` — unchanged signature.
-- Produces: no external contract change; behavior: connection opened with `mode=ro` URI.
+- Consumes: `connect(self, db_params)` where db_params key is `"path"` (sqlite_connector.py:51-53).
+- Produces: behavior change — connection opened with `mode=ro` URI; connecting to a nonexistent path now raises instead of silently creating the file.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `test_sqlite_connector.py` (pattern: existing tests use `tmp_path` and a seeded fixture DB — reuse `create_sqlite_db` helper if present, otherwise seed inline):
+Append to `test_sqlite_connector.py` (existing tests seed temp DBs with `sqlite3.connect` first and pass `{"path": ...}` — follow that pattern):
 
 ```python
 def test_connection_is_read_only(tmp_path):
@@ -68,7 +155,7 @@ def test_connection_is_read_only(tmp_path):
     conn.commit()
     conn.close()
     connector = SQLiteConnector()
-    connector.connect({"db_path": str(db_path)})
+    connector.connect({"path": str(db_path)})
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
         connector.connection.execute("CREATE TABLE t2 (id INTEGER)")
     connector.close()
@@ -81,13 +168,13 @@ Expected: FAIL — write succeeds (no `readonly` error raised).
 
 - [ ] **Step 3: Minimal implementation**
 
-In `sqlite_connector.py`, replace the connect call:
+In `sqlite_connector.py`, replace the connect call (keep the existing `except sqlite3.Error` wrapper and the missing-`path` ValueError):
 
 ```python
 self.connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 ```
 
-Keep the existing `finally`/error handling. Note: a missing file now raises `OperationalError: unable to open database file` — add `assert os.path.exists(db_path)` (or a clear error message) before connecting, wrapped in the existing error-handling path.
+Note: with `mode=ro`, a nonexistent file raises `sqlite3.OperationalError` (unable to open database file) instead of creating it — this is the intended read-only contract; the existing `ConnectorError` wrapper converts it. No `assert os.path.exists(...)` needed; do not add one. (If a future user needs a "create if missing" mode it must be explicit opt-in, out of v1 scope.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -102,23 +189,37 @@ git commit -m "fix: enforce read-only SQLite connections
 
 문제 상황: v1 계약은 코어 경로 읽기 전용을 요구하나 sqlite 커넥터가 쓰기 가능 연결을 열었음.
 증거: gap audit G1 — sqlite3.connect(db_path)에 mode=ro 없음 (sqlite_connector.py:57); 쓰기 시도가 성공하는 red 테스트로 재현.
-해결: mode=ro URI + 파일 존재 검증.
-기각한 대안: PRAGMA query_only(연결 후 설정이라 오픈 순간 쓰기 위험이 남음)."
+해결: mode=ro URI로 전환.
+기각한 대안: PRAGMA query_only(연결 후 설정이라 오픈 순간 쓰기 위험이 남음), 파일 존재 assert(중복 방어 코드, wrapper가 처리)."
 ```
 
 ### Task 1.2: PostgreSQL read-only connection
 
 **Files:**
 - Modify: `schema_scribe/components/db_connectors/postgres_connector.py:61-67`
-- Test: `schema_scribe/tests/unit/db_connectors/test_postgres_connector.py`
+- Modify: `schema_scribe/tests/unit/db_connectors/test_postgres_connector.py:14-32` — **existing test update required**
+- Test: extend `test_postgres_connector.py`
 
 **Interfaces:**
-- Consumes: `connect(self, db_params)`; existing test asserts `psycopg2.connect` called with expected kwargs.
+- Consumes: `connect(self, db_params)`.
 - Produces: connect kwargs now include `options="-c default_transaction_read_only=on"`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test and update the pinned existing test**
 
-In `test_postgres_connector.py`, extend the existing connect-params test (assert on the mocked `psycopg2.connect` call):
+The existing `test_postgres_connector_connect` asserts `mock_psycopg2.connect.assert_called_once_with(host=..., port=..., user=..., password=..., dbname=...)` (test_postgres_connector.py:26-32) — it **must** be extended to include the new kwarg, in this same task:
+
+```python
+    mock_psycopg2.connect.assert_called_once_with(
+        host="localhost",
+        port=5432,
+        user="admin",
+        password="pw",
+        dbname="testdb",
+        options="-c default_transaction_read_only=on",
+    )
+```
+
+Add a dedicated red test first:
 
 ```python
 def test_connect_enforces_read_only(mocker):
@@ -129,7 +230,7 @@ def test_connect_enforces_read_only(mocker):
     assert kwargs["options"] == "-c default_transaction_read_only=on"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify the new one fails**
 
 Run: `pytest schema_scribe/tests/unit/db_connectors/test_postgres_connector.py::test_connect_enforces_read_only -v`
 Expected: FAIL — `options` key missing.
@@ -142,22 +243,21 @@ Add to the connect kwargs dict in `postgres_connector.py`:
 "options": "-c default_transaction_read_only=on",
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run the whole file**
 
 Run: `pytest schema_scribe/tests/unit/db_connectors/test_postgres_connector.py -v`
-Expected: PASS.
+Expected: PASS — both the new test and the updated pinned test.
 
-- [ ] **Step 5: Commit** (same body format as Task 1.1; title `fix: enforce read-only PostgreSQL connections`)
+- [ ] **Step 5: Commit** (title `fix: enforce read-only PostgreSQL connections`; body notes the pinned-test update)
 
 ### Task 1.3: MariaDB read-only connection
 
 **Files:**
-- Modify: `schema_scribe/components/db_connectors/mariadb_connector.py:72-78`
+- Modify: `schema_scribe/components/db_connectors/mariadb_connector.py:72-80`
 - Test: `schema_scribe/tests/unit/db_connectors/test_mariadb_connector.py`
 
 **Interfaces:**
-- Consumes: `connect(self, db_params)`.
-- Produces: after connect, issues `SET SESSION TRANSACTION READ ONLY`.
+- Consumes: `connect(self, db_params)`; the connector keeps a live `self.cursor` created in `connect` (mariadb_connector.py:79) — **reuse it, do not create or close a second cursor**.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -169,25 +269,23 @@ def test_connect_enforces_read_only(mocker):
     mocker.patch("mysql.connector.connect", return_value=mock_conn)
     connector = MariaDBConnector()
     connector.connect({"host": "h", "user": "u", "password": "p", "database": "d"})
-    mock_cursor.execute.assert_called_once_with("SET SESSION TRANSACTION READ ONLY")
+    mock_cursor.execute.assert_any_call("SET SESSION TRANSACTION READ ONLY")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest schema_scribe/tests/unit/db_connectors/test_mariadb_connector.py::test_connect_enforces_read_only -v`
-Expected: FAIL — cursor never called.
+Expected: FAIL — cursor never called with that statement.
 
 - [ ] **Step 3: Minimal implementation**
 
-After the `mysql.connector.connect(...)` call in `mariadb_connector.py`, add:
+After `self.cursor = self.connection.cursor()` (mariadb_connector.py:79), add:
 
 ```python
-cursor = self.connection.cursor()
-cursor.execute("SET SESSION TRANSACTION READ ONLY")
-cursor.close()
+self.cursor.execute("SET SESSION TRANSACTION READ ONLY")
 ```
 
-(If the connector already creates a cursor elsewhere, reuse that path.)
+Do **not** close the cursor — it is the connector's live metadata cursor. Do **not** create a second cursor.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -196,41 +294,38 @@ Expected: PASS.
 
 - [ ] **Step 5: Commit** (title `fix: enforce read-only MariaDB connections`)
 
-### Task 1.4: DuckDB read-only coverage + Snowflake documented exception
+### Task 1.4: DuckDB read-only regression lock
 
 **Files:**
-- Modify: `schema_scribe/components/db_connectors/snowflake_connector.py:69-76` (docstring only)
-- Test: `schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py` (add), `schema_scribe/tests/unit/db_connectors/test_snowflake_connector.py` (add)
+- Test: `schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py`
 
 **Interfaces:**
-- Produces: DuckDB `.db` connect keeps `read_only=True` (existing); a regression test locks it. Snowflake: read-only is enforced by account role grants (no `SET TRANSACTION READ ONLY` support) — recorded as a documented exception in the connector docstring.
+- Produces: no code change expected — the existing test `test_duckdb_connector` already asserts `duckdb.connect(database=..., read_only=True)` for `.db` files (test_duckdb_connector.py:34-42). This task makes the read-only guarantee an explicit, named regression lock with a write-attempt assertion.
 
-- [ ] **Step 1: Write the failing test (duckdb regression lock)**
+- [ ] **Step 1: Add the regression lock**
 
 ```python
-def test_file_connection_is_read_only(mocker):
-    mock_connect = mocker.patch("duckdb.connect")
+def test_file_connection_is_read_only(mock_duckdb_lib):
     connector = DuckDBConnector()
-    connector.connect({"database": "/tmp/x.duckdb"})
-    assert mock_connect.call_args.kwargs.get("read_only") is True
+    connector.connect({"path": "/tmp/fixture.duckdb"})
+    kwargs = mock_duckdb_lib.mock_connect.call_args.kwargs
+    assert kwargs.get("read_only") is True
 ```
 
-Run it — if it passes immediately, add a write-attempt assertion instead if the real duckdb is importable in the test env; otherwise keep the connect-params lock and mark the step as a regression guard (record the result in the commit body).
+- [ ] **Step 2: Run test**
 
-- [ ] **Step 2: Add Snowflake exception documentation**
+Run: `pytest schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py::test_file_connection_is_read_only -v`
+Expected: PASS immediately (existing behavior). This is a regression lock, not a red test — state that explicitly in the commit body so reviewers know the assertion already holds.
 
-In `snowflake_connector.py` docstring for `connect`, add: "Read-only enforcement relies on the account role's grants; Snowflake sessions do not support a server-side read-only transaction mode."
+- [ ] **Step 3: Declare Snowflake read-only status**
 
-- [ ] **Step 3: Run the connector test suites**
+In `snowflake_connector.py` `connect` docstring, replace any privacy-adjacent claims with: "Read-only enforcement relies on the account role's grants; Snowflake does not support a server-side read-only session mode. Snowflake is NOT v1-qualified (see docs/PRODUCT.md:55-57 and the acceptance suite)."
 
-Run: `pytest schema_scribe/tests/unit/db_connectors/ -v`
-Expected: PASS.
-
-- [ ] **Step 4: Commit** (title `test: lock DuckDB read-only; document Snowflake exception`)
+- [ ] **Step 4: Commit** (title `test: lock DuckDB read-only; declare Snowflake unqualified`)
 
 ### Slice 1 gate
 
-- [ ] Run `./scripts/verify.sh` — expected: PASS (72 + new tests).
+- [ ] Run `./scripts/verify.sh` — expected: PASS (72 + new tests; the updated postgres pinned test included).
 - [ ] Merge to parent branch (ff) with `git log` review for missed commits.
 
 ---
@@ -243,19 +338,19 @@ Expected: PASS.
 - Modify: `schema_scribe/core/interfaces.py:137-146`
 - Modify: `schema_scribe/components/db_connectors/sql_base_connector.py:292-309`, `sqlite_connector.py:244-261`, `duckdb_connector.py:253-266`
 - Modify: `schema_scribe/services/catalog_generator.py:69-74`
-- Test: `schema_scribe/tests/unit/db_connectors/test_sql_base_connector.py` (add), `schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py` (extend)
+- Test: `schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py` (extend)
 
 **Interfaces:**
-- Consumes: current `get_column_profile` returning `{"null_ratio": ..., "distinct_count": ..., "is_unique": ..., "N/A" strings on failure}`.
-- Produces: interface documents exactly `null_ratio: float | None`, `distinct_count: int | None`, `is_unique: bool | None`; failure returns `None` values instead of `"N/A"` strings.
+- Consumes: `get_column_profile` — note the guard is on `self.cursor` (sqlite_connector.py:209-212), not `self.connection`.
+- Produces: interface documents exactly `null_ratio: float | None`, `distinct_count: int | None`, `is_unique: bool | None`; failure returns `None` values instead of `"N/A"` strings; `_format_profile_stats` renders `None` as `"N/A"` in prompts.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 def test_profile_returns_none_on_query_failure(mocker):
     connector = SQLiteConnector()
-    connector.connection = mocker.MagicMock()
-    connector.connection.cursor.return_value.execute.side_effect = sqlite3.Error("boom")
+    connector.cursor = mocker.MagicMock()
+    connector.cursor.execute.side_effect = sqlite3.Error("boom")
     profile = connector.get_column_profile("t", "c")
     assert profile["null_ratio"] is None
     assert profile["distinct_count"] is None
@@ -264,32 +359,67 @@ def test_profile_returns_none_on_query_failure(mocker):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Expected: FAIL — current code returns `"N/A"` strings.
+Run: `pytest schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py::test_profile_returns_none_on_query_failure -v`
+Expected: FAIL — current code returns `"N/A"` strings (and note: the test must stub `connector.cursor`, not `connector.connection.cursor`, or the `if not self.cursor` guard at sqlite_connector.py:209-212 fires first).
 
 - [ ] **Step 3: Minimal implementation**
 
-In each connector's `get_column_profile` failure branch, return `None` for each stat instead of `"N/A"`; in `sql_base_connector.py`/`duckdb_connector.py` likewise. Update `interfaces.py:139-146` docstring: drop `min`/`max`/`avg`, document `float | None` etc. In `catalog_generator.py:_format_profile_stats`, format `None` as `"N/A"` (the current default already does — verify and keep).
+In each connector's `get_column_profile` failure branch, return `None` for each stat instead of `"N/A"` (sqlite_connector.py:257-261, sql_base_connector.py:305-309, duckdb_connector.py:262-266). Update `interfaces.py:139-146` docstring: drop `min`/`max`/`avg`, document `float | None` / `int | None` / `bool | None`. In `catalog_generator.py:_format_profile_stats` (catalog_generator.py:69-74), the current `.get(key, "N/A")` default does **not** apply when the key exists with value `None` — change to:
 
-- [ ] **Step 4: Run test to verify it passes**
+```python
+def _format_profile_stats(self, profile_stats):
+    null_ratio = profile_stats.get("null_ratio")
+    distinct_count = profile_stats.get("distinct_count")
+    is_unique = profile_stats.get("is_unique")
+    return (
+        f"Null Ratio: {null_ratio if null_ratio is not None else 'N/A'} | "
+        f"Distinct Count: {distinct_count if distinct_count is not None else 'N/A'} | "
+        f"Is Unique: {is_unique if is_unique is not None else 'N/A'}"
+    )
+```
 
-Run: `pytest schema_scribe/tests/unit/db_connectors/ -v`
+(Adjust to the exact current formatting at catalog_generator.py:69-74 — the requirement is: `None` renders as `"N/A"`, never as the string `"None"`.)
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pytest schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py schema_scribe/tests/integration/test_db_workflow.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit** (title `fix: align profile stats contract with privacy boundary`)
 
-### Task 2.2: DuckDB primary-key detection
+### Task 2.2: DuckDB primary-key detection (decision gate on real behavior)
+
+The repo's own mocked test models DuckDB `DESCRIBE` as returning `"PRI"` in the key slot (test_duckdb_connector.py:131), which would make `is_pk` work today and make a rewrite unnecessary. The audit claims real DuckDB returns NULL there. This task starts with an observation that decides the rest.
 
 **Files:**
-- Modify: `schema_scribe/components/db_connectors/duckdb_connector.py:180-189`
-- Test: `schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py` (add)
+- Modify: `schema_scribe/components/db_connectors/duckdb_connector.py:180-189` (only if the probe shows a real defect)
+- Test: `schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py` (extend)
 
 **Interfaces:**
 - Consumes: `get_columns(table_name)` returning per-column dicts with `is_pk: bool`.
-- Produces: `is_pk` computed from `duckdb_constraints()` instead of `DESCRIBE`.
+- Produces: either (a) proof that `is_pk` works and a regression lock, or (b) `is_pk` computed from `duckdb_constraints()` (same API already used for FKs at duckdb_connector.py:307-318, proven available in DuckDB v0.9.0+).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Observe real behavior (5 minutes)**
 
-Real-duckdb test (duckdb is a real dependency; if the test env imports it, use it):
+Run a real DuckDB probe (from the repo's `.venv`):
+
+```python
+import duckdb, tempfile, os
+p = os.path.join(tempfile.mkdtemp(), "pk.db")
+con = duckdb.connect(p)
+con.execute("CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY (a, b))")
+print(con.execute("DESCRIBE t").fetchall())
+con.close()
+```
+
+Record the actual `key` slot value (and whether it is NULL or `"PRI"`).
+
+- [ ] **Step 2: Decide the branch**
+
+- If `DESCRIBE` returns `"PRI"`: write a regression lock test asserting `is_pk is True` for both composite-PK columns (it may pass immediately — say so in the commit body), and stop. No code change.
+- If `DESCRIBE` returns NULL/empty: write the failing test below, then implement (b).
+
+Failing test (real duckdb, if importable in the test env; otherwise mocked with the real `duckdb_constraints()` row shape seen in the probe):
 
 ```python
 def test_is_pk_detected_from_constraints(tmp_path):
@@ -297,31 +427,25 @@ def test_is_pk_detected_from_constraints(tmp_path):
     db.execute("CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY (a, b))")
     db.close()
     connector = DuckDBConnector()
-    connector.connect({"database": str(tmp_path / "pk.db")})
+    connector.connect({"path": str(tmp_path / "pk.db")})
     cols = {c["name"]: c for c in connector.get_columns("t")}
     assert cols["a"]["is_pk"] is True
     assert cols["b"]["is_pk"] is True
     connector.close()
 ```
 
-If the suite cannot import duckdb in CI (verify first), fall back to a mocked test asserting `duckdb_constraints()` is queried and its result drives `is_pk` — choose per environment evidence, and say which in the commit body.
+- [ ] **Step 3: Implementation (only in the second branch)**
 
-- [ ] **Step 2: Run test to verify it fails**
+Keep the file-scan path's DESCRIBE-based inference intact (test_duckdb_connector.py:128-161 pins it). For persistent `.db`/`.duckdb` connections, query `duckdb_constraints()` exactly like the existing FK code (duckdb_connector.py:307-318), filtering `WHERE constraint_type = 'PRIMARY KEY'` **and `table_name = ?`**, and flattening `column_names` (a list — each element is a PK column). Build a `set` of PK column names and set `is_pk = name in pk_columns`.
 
-Expected: FAIL — `is_pk` is False for both.
-
-- [ ] **Step 3: Minimal implementation**
-
-Replace the DESCRIBE-based PK check: query `duckdb_constraints()` (matching `constraint_type = 'PRIMARY KEY'`), collect the constrained column names, set `is_pk = name in pk_columns`.
-
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run the duckdb tests**
 
 Run: `pytest schema_scribe/tests/unit/db_connectors/test_duckdb_connector.py -v`
-Expected: PASS.
+Expected: PASS (both branches).
 
-- [ ] **Step 5: Commit** (title `fix: detect DuckDB primary keys via constraints`)
+- [ ] **Step 5: Commit** (title: `fix: detect DuckDB primary keys via constraints` or `test: lock DuckDB primary-key detection` — whichever the probe decides)
 
-### Task 2.3: SQLite composite-PK and SqlBase boolean coercion
+### Task 2.3: SQLite composite-PK marking and SqlBase boolean coercion
 
 **Files:**
 - Modify: `schema_scribe/components/db_connectors/sqlite_connector.py:122`
@@ -329,7 +453,7 @@ Expected: PASS.
 - Test: `schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py` (extend), `schema_scribe/tests/unit/db_connectors/test_sql_base_connector.py` (extend)
 
 **Interfaces:**
-- Produces: SQLite marks every composite-PK column (`row[5] > 0`); SqlBase returns bool (`row[3] is truthy and not "0"`), not int.
+- Produces: SQLite marks every composite-PK column (`row[5] > 0`); SqlBase returns `bool(row[3])`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -341,7 +465,7 @@ def test_composite_pk_all_columns_marked(tmp_path):
     conn.commit()
     conn.close()
     connector = SQLiteConnector()
-    connector.connect({"db_path": str(db_path)})
+    connector.connect({"path": str(db_path)})
     cols = {c["name"]: c for c in connector.get_columns("t")}
     assert cols["a"]["is_pk"] is True
     assert cols["b"]["is_pk"] is True
@@ -350,11 +474,12 @@ def test_composite_pk_all_columns_marked(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
+Run: `pytest schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py::test_composite_pk_all_columns_marked -v`
 Expected: FAIL — `is_pk` True only for `a`.
 
 - [ ] **Step 3: Minimal implementation**
 
-`sqlite_connector.py`: change `row[5] == 1` to `row[5] > 0`. `sql_base_connector.py`: coerce the PK flag to `bool(row[3])` (verify the MariaDB CASE TRUE behavior and use `bool(...)`).
+`sqlite_connector.py`: change `row[5] == 1` to `row[5] > 0`. `sql_base_connector.py`: change `row[3] or False` to `bool(row[3])` (psycopg2 already yields bool; MariaDB's CASE TRUE yields int 1 — `bool()` normalizes both).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -362,6 +487,56 @@ Run: `pytest schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py sch
 Expected: PASS.
 
 - [ ] **Step 5: Commit** (title `fix: correct composite PK marking and bool coercion`)
+
+### Task 2.4: Propagate `is_pk` into the catalog dict (unblocks Slice 5)
+
+The audit found `CatalogGenerator` drops `is_pk` (catalog_generator.py:172-179). Without this, PK fixes have zero user-visible effect and the Slice 5 state snapshot cannot compute PK-based structural change.
+
+**Files:**
+- Modify: `schema_scribe/services/catalog_generator.py:172-179`
+- Modify: `schema_scribe/components/writers/markdown_writer.py:137-144` (render PK marker)
+- Test: `schema_scribe/tests/integration/test_db_workflow_composition.py` (extend), `schema_scribe/tests/unit/writers/test_markdown_writer.py` (extend)
+
+**Interfaces:**
+- Consumes: column dicts from `get_columns` (have `is_pk`).
+- Produces: enriched column dicts include `"is_pk": bool`; MarkdownWriter renders a PK marker (e.g., a `🔑` or `[PK]` prefix on the column name — choose the same style as existing markdown); JsonWriter already dumps the catalog dict unchanged, so it inherits `is_pk`.
+
+- [ ] **Step 1: Write the failing test**
+
+Extend the Slice 0 composition test (the real connector path):
+
+```python
+def test_catalog_carries_is_pk(tmp_path):
+    db_path = tmp_path / "pk.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+    conn.commit()
+    conn.close()
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "draft"
+    wf = DbWorkflow(connector, llm, writer=None, db_profile_name="fixture")
+    catalog = wf.generate_catalog()
+    col = catalog["tables"][0]["columns"][0]
+    assert col["name"] == "id" and col["is_pk"] is True
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest schema_scribe/tests/integration/test_db_workflow_composition.py::test_catalog_carries_is_pk -v`
+Expected: FAIL — `KeyError: 'is_pk'` (key absent).
+
+- [ ] **Step 3: Minimal implementation**
+
+In `catalog_generator.py`'s enriched-column dict (catalog_generator.py:172-179), add `"is_pk": col_info.get("is_pk", False)` (the connector returns it; check the exact key name from `get_columns`). In `markdown_writer.py`, render the PK marker in the column row using the existing column-name cell style.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pytest schema_scribe/tests/integration/test_db_workflow_composition.py schema_scribe/tests/unit/writers/test_markdown_writer.py -v`
+Expected: PASS.
+
+- [ ] **Step 5: Commit** (title `feat: propagate primary-key markers into catalog and markdown`)
 
 ### Slice 2 gate
 
@@ -372,16 +547,18 @@ Expected: PASS.
 
 ## Slice 3: Disclosure Before External LLM (G3)
 
-### Task 3.1: `db --dry-run` payload manifest
+### Task 3.1: `db --dry-run` — real disclosure, no LLM client construction
+
+Design decisions from the panel review: (1) `--dry-run` must **not** construct the LLM client — `OllamaClient.__init__` performs a model pull (ollama_client.py:64-67), which would execute provider-side work in a "dry" run; (2) the manifest must include the **verbatim view SQL** (the riskiest payload item, G3) and state the profile stats that will be sent; (3) it must not run the full profiling workload twice — it discloses what WILL be sent without paying the profiling cost twice (stat keys + a note that per-column aggregate stats are included).
 
 **Files:**
-- Modify: `schema_scribe/app.py:301-346` (db command)
+- Modify: `schema_scribe/app.py:301-346` (db command: build workflow with no LLM client when `--dry-run`)
 - Modify: `schema_scribe/workflows/db_workflow.py` (new method)
-- Test: `schema_scribe/tests/integration/test_db_workflow.py` (add), `schema_scribe/tests/unit/test_app_cli.py` if a CLI test harness exists (check; otherwise integration only)
+- Test: `schema_scribe/tests/integration/test_db_workflow.py` (add), `schema_scribe/tests/unit/db_connectors/test_sqlite_connector.py` if a dry-run-specific unit is cheaper
 
 **Interfaces:**
-- Consumes: `DbWorkflow(db_connector, llm_client, writer, ...)`.
-- Produces: `DbWorkflow.dry_run() -> None` — collects schema metadata + profile stats, prints a manifest (db profile, table/column/view counts, stat counts, target provider), calls NO LLM, writes nothing, closes the connection. New `--dry-run` flag on `db`.
+- Consumes: `DbWorkflow(db_connector, llm_client=None, writer=None, db_profile_name=...)`.
+- Produces: `DbWorkflow.dry_run() -> None` — collects schema metadata (tables, columns with types, **view SQL verbatim**, FK count), prints the manifest, calls NO LLM, writes nothing, closes the connection. Provider name is a constructor param `provider_name: str | None = None`, not read from the client.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -390,27 +567,28 @@ def test_dry_run_prints_manifest_without_llm_or_write(capsys):
     connector = MagicMock(spec=BaseConnector)
     connector.get_tables.return_value = ["users"]
     connector.get_columns.return_value = [{"name": "id", "type": "INTEGER"}]
-    connector.get_views.return_value = []
+    connector.get_views.return_value = [{"name": "v_active", "definition": "CREATE VIEW v_active AS SELECT id FROM users WHERE status = 'paid'"}]
     connector.get_foreign_keys.return_value = []
-    connector.get_column_profile.return_value = {"null_ratio": 0.0, "distinct_count": 10, "is_unique": True}
-    llm = MagicMock(spec=BaseLLMClient)
-    writer = MagicMock(spec=BaseWriter)
-    wf = DbWorkflow(connector, llm, writer, db_profile_name="mydb")
+    wf = DbWorkflow(connector, llm_client=None, writer=None, db_profile_name="mydb",
+                    provider_name="ollama")
     wf.dry_run()
-    assert llm.get_description.call_count == 0
-    writer.write.assert_not_called()
     out = capsys.readouterr().out
-    assert "mydb" in out and "users" in out and "id" in out
+    assert "mydb" in out
+    assert "users" in out and "id" in out
+    assert "v_active" in out and "status = 'paid'" in out  # view SQL disclosed verbatim
+    assert "ollama" in out
+    connector.get_column_profile.assert_not_called()
     connector.close.assert_called_once()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
+Run: `pytest schema_scribe/tests/integration/test_db_workflow.py::test_dry_run_prints_manifest_without_llm_or_write -v`
 Expected: FAIL — `DbWorkflow.dry_run` does not exist.
 
 - [ ] **Step 3: Minimal implementation**
 
-In `db_workflow.py`, add `dry_run()` that reuses the same metadata collection as `CatalogGenerator` but only prints counts + names (table names, column name:type lists, view count) and the profile stat keys, then closes the connection. Wire `--dry-run` in `app.py` db command: when set, build workflow without writer and call `dry_run()` (mirroring the existing writer-null path at app.py:301-346).
+In `db_workflow.py`, add `dry_run()`: fetch tables/columns/views/FKs via the connector, print the manifest (profile name, provider name, table list, per-table column `name: type` lines, view count + verbatim view SQL lines, FK count, and the note "Per-column aggregate stats (null_ratio, distinct_count, is_unique) will be included"), then `close()`. In `app.py`, the `--dry-run` flag builds the workflow with `llm_client=None` and `writer=None` and calls `dry_run()` — the LLM client is never constructed.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -422,24 +600,37 @@ Expected: PASS.
 ### Task 3.2: Run-start transmission disclosure line
 
 **Files:**
-- Modify: `schema_scribe/services/catalog_generator.py` (before first `get_description` call, ~line 139)
-- Test: `schema_scribe/tests/integration/test_db_workflow.py` (extend) or unit test on CatalogGenerator
+- Modify: `schema_scribe/workflows/db_workflow.py` (pass `provider_name` through to the run log)
+- Modify: `schema_scribe/services/catalog_generator.py` (emit disclosure before first LLM call)
+- Test: `schema_scribe/tests/integration/test_db_workflow.py` (extend, using `caplog` — the logger binds to `sys.stdout` at import (utils/logger.py:46-59), so `capsys` will not capture log output)
 
 **Interfaces:**
-- Consumes: `CatalogGenerator(db_connector, llm_client)`.
-- Produces: before the first LLM call, a log/info line: `Sending <n> table summaries and <m> column descriptions to provider '<provider>'. Metadata: tables=<t>, columns=<c>, views=<v>.`
+- Consumes: `CatalogGenerator(db_connector, llm_client)`; `DbWorkflow(..., provider_name=...)`.
+- Produces: before the first `get_description` call, log at INFO: `Sending <n> table summaries and <m> column descriptions to provider '<provider_name>'. Metadata: tables=<t>, columns=<c>, views=<v>.` The counts are computed from the already-collected metadata in the run's collection phase — do not add a second collection pass.
 
 - [ ] **Step 1: Write the failing test**
 
-Extend the existing `test_db_workflow.py` orchestration test (it asserts `call_count == 12`): assert the logger (or a returned manifest) records the disclosure line before any `get_description` call. Prefer asserting on a structured return value over log capture if simpler: have `CatalogGenerator.generate_catalog` accept a `disclosure_callback` or return a `payload_summary` alongside the catalog — pick the cheapest that keeps the existing call-count test green.
+```python
+def test_run_discloses_payload_before_first_llm_call(caplog, mock_llm_client, ...):
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = ["t"]
+    connector.get_columns.return_value = [{"name": "c", "type": "INTEGER", "description": "", "is_nullable": True, "is_pk": False}]
+    wf = DbWorkflow(connector, mock_llm_client, writer=None, db_profile_name="d", provider_name="openai")
+    with caplog.at_level(logging.INFO):
+        wf.run()
+    assert "provider 'openai'" in caplog.text
+    assert "1 table summaries" in caplog.text
+```
+
+Note: `mock_llm_client` is `MagicMock(spec=BaseLLMClient)` — do **not** access any attribute on it except `get_description`, because `BaseLLMClient` has no provider attribute.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Expected: FAIL — no disclosure emitted.
+Expected: FAIL — no disclosure line logged.
 
 - [ ] **Step 3: Minimal implementation**
 
-In `catalog_generator.py`, before the description loop, compute counts and emit the disclosure (log at INFO via `get_logger`, plus include the summary in the returned catalog dict under `"payload_summary"` if the structured approach was chosen).
+In `catalog_generator.py`, at the start of the table-description loop (before the first `get_description`), log the disclosure line with the collected counts. The counts must come from the collection already done in this run — if `CatalogGenerator` collects views only later (catalog_generator.py:189-203), move view collection before the description loop or log the view count as "pending" — prefer the cheap fix: collect metadata first, then describe (one reorder, no duplicate work).
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -465,40 +656,55 @@ Expected: PASS.
 - Test: `schema_scribe/tests/unit/writers/test_markdown_writer.py`, `schema_scribe/tests/unit/writers/test_json_writer.py`
 
 **Interfaces:**
-- Produces: both writers render the complete output in memory, write to a temp file in the target directory (`tempfile.NamedTemporaryFile(mode="w", dir=target_dir, delete=False)`), then `os.replace(tmp, target)`; `IOError` handling unchanged.
+- Produces: both writers render the complete output in memory, write to a temp file in the target directory, then `os.replace` onto the target; temp file removed on failure (`try/finally`); existing `IOError` handling preserved.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test — inject failure INSIDE the write path**
+
+The test must exercise the truncation defect, so it patches a stream write, not the writer method itself:
 
 ```python
 def test_failed_write_preserves_previous_output(tmp_path, monkeypatch):
     target = tmp_path / "catalog.md"
     target.write_text("PREVIOUS CONTENT")
     writer = MarkdownWriter()
-    def boom(*args, **kwargs):
+    import io
+    def failing_io(*a, **k):
         raise IOError("disk full")
-    monkeypatch.setattr(writer, "write", boom)  # or patch the underlying f.write
+    monkeypatch.setattr(io, "open", failing_io)  # or patch the exact open the writer calls
     with pytest.raises(IOError):
-        writer.write({...}, output_filename=str(target), ...)
+        writer.write({...same dict as existing markdown writer tests...},
+                     output_filename=str(target))
     assert target.read_text() == "PREVIOUS CONTENT"
 ```
 
-(The exact catalog-dict shape comes from the existing markdown writer test — reuse its fixture. If patching `write` masks the mechanics, patch `json.dump`/`f.write` at the streaming call site instead; the assertion is what matters: old content intact after failure.)
+(Reuse the existing markdown writer test's catalog dict. If patching `io.open` is too broad, patch `tempfile.mkstemp`/`os.replace` failure instead and assert the temp file is cleaned up and the target untouched — the assertion that matters: old content intact after failure.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Expected: FAIL — `"PREVIOUS CONTENT"` lost (file truncated).
+Run: `pytest schema_scribe/tests/unit/writers/test_markdown_writer.py::test_failed_write_preserves_previous_output -v`
+Expected: FAIL — `"PREVIOUS CONTENT"` lost (file truncated at open).
 
 - [ ] **Step 3: Minimal implementation**
 
-Both writers: build the full string (markdown already streams — accumulate into a `StringIO` or list then join; json uses `json.dumps(catalog_data, indent=2)`), then atomic write:
+Both writers: accumulate the full output (markdown: build the string in memory instead of streaming to `f`; json: `json.dumps(catalog_data, indent=2)`), then:
 
 ```python
-import os, tempfile
-fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(output_filename)), suffix=".tmp")
-with os.fdopen(fd, "w", encoding="utf-8") as f:
-    f.write(content)
-os.replace(tmp_path, output_filename)
+import os
+import tempfile
+
+content = ...  # full rendered string
+fd, tmp_name = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(output_filename)), suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp_name, output_filename)
+except BaseException:
+    if os.path.exists(tmp_name):
+        os.unlink(tmp_name)
+    raise
 ```
+
+Note: `mkstemp` creates the file mode 0600 — `os.replace` keeps that mode, changing output file permissions from umask-default. If the existing tests or product behavior require umask-default modes, copy the mode of an existing target with `os.chmod(tmp_name, ...)` before replace (or use `os.open` with the umask default) — decide by checking existing writer tests; record the choice in the commit body.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -507,7 +713,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Commit** (title `fix: make file writers atomic`)
 
-### Task 4.2: Failure-preservation integration tests
+### Task 4.2: Failure-preservation integration test (regression lock)
 
 **Files:**
 - Test: `schema_scribe/tests/integration/test_db_workflow.py` (add)
@@ -515,7 +721,7 @@ Expected: PASS.
 **Interfaces:**
 - Consumes: `DbWorkflow.run()` with injected fakes.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the regression lock**
 
 ```python
 def test_generation_failure_preserves_output(tmp_path):
@@ -533,20 +739,11 @@ def test_generation_failure_preserves_output(tmp_path):
     assert target.read_text() == "PREVIOUS"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test**
 
-Expected: FAIL — `LLMClientError` escapes `DbWorkflow.run` (it catches only KeyError/ValueError/IOError); the file is untouched, so this test may pass immediately. If it passes, keep it as the regression lock and note in the commit body that ordering already protected generation failures; the destructive case is covered by Task 4.1's mid-write test.
+Expected: PASS immediately (generation completes before the writer runs, db_workflow.py:94-113). This locks the generation-failure path; the destructive write-phase path is covered by Task 4.1's mid-write test. State this honestly in the commit body — do not claim this test proves write-phase preservation.
 
-- [ ] **Step 3: Minimal implementation**
-
-None expected — verification task. If the test fails, fix the failure path (writer invocation must not run before generation completes; it already doesn't, db_workflow.py:94-113).
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest schema_scribe/tests/integration/test_db_workflow.py -v`
-Expected: PASS.
-
-- [ ] **Step 5: Commit** (title `test: lock failure-preserves-output semantics`)
+- [ ] **Step 3: Commit** (title `test: lock failure-preserves-output semantics`)
 
 ### Slice 4 gate
 
@@ -565,19 +762,30 @@ Expected: PASS.
 - Test: `schema_scribe/tests/unit/test_schema_state.py` (new)
 
 **Interfaces:**
-- Consumes: catalog dict from `CatalogGenerator`.
-- Produces: `class SchemaState` with `load(path) -> dict | None`, `save(catalog, path)`, `snapshot(catalog) -> dict` where snapshot = `{"tables": {name: {"columns": {col: type}, "pk": [cols], "fks": [...]}}, "views": [names], "generated_at": iso}`. Sidecar path convention: `<output_filename>.schema-state.json`.
+- Consumes: catalog dict from `CatalogGenerator` (shape pinned by Slice 0: tables with `columns` incl. `is_pk`, top-level `views`, `foreign_keys`).
+- Produces: `SchemaState.snapshot(catalog) -> dict` (pure), `SchemaState.save(snapshot: dict, path: str) -> None` (atomic, reusing the Task 4.1 pattern), `SchemaState.load(path: str) -> dict | None` (`None` on missing/corrupt JSON — never raise). Snapshot shape: `{"tables": {name: {"columns": {col: type}, "pk": [col, ...], "fks": [source_col, ...]}}, "views": [names], "generated_at": iso}`. Sidecar path convention: `<output_filename>.schema-state.json`. Sidecar written only for file writers that receive `output_filename`, and only after a successful `writer.write`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 def test_roundtrip_snapshot(tmp_path):
     path = tmp_path / "catalog.md.schema-state.json"
-    catalog = {"tables": [{"name": "t", "columns": [{"name": "c", "type": "INTEGER", "is_pk": True}]}], "views": []}
-    SchemaState.save(SchemaState.snapshot(catalog), str(path))
+    catalog = {"tables": [{"name": "t", "columns": [
+        {"name": "id", "type": "INTEGER", "is_pk": True},
+        {"name": "v", "type": "TEXT", "is_pk": False},
+    ]}], "views": [], "foreign_keys": []}
+    snap = SchemaState.snapshot(catalog)
+    SchemaState.save(snap, str(path))
     loaded = SchemaState.load(str(path))
-    assert loaded["tables"]["t"]["columns"] == {"c": "INTEGER"}
-    assert loaded["tables"]["t"]["pk"] == ["c"]
+    assert loaded["tables"]["t"]["columns"] == {"id": "INTEGER", "v": "TEXT"}
+    assert loaded["tables"]["t"]["pk"] == ["id"]
+
+
+def test_load_missing_or_corrupt_returns_none(tmp_path):
+    assert SchemaState.load(str(tmp_path / "nope.json")) is None
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert SchemaState.load(str(bad)) is None
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -586,7 +794,7 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Minimal implementation**
 
-`schema_state.py` per the Interfaces block (pure functions; `json` stdlib). In `db_workflow.run()`, after a successful `writer.write(...)`, save the snapshot next to the output file (requires the workflow to know the output filename — derive from `writer_params`; if absent, skip state save).
+`schema_state.py` per the Interfaces block. In `db_workflow.run()`, after a successful `writer.write(...)`: if `writer_params` contains `output_filename`, save the snapshot to `<output_filename>.schema-state.json`; a sidecar write failure must **not** fail the run (log a warning and continue) — the documentation output is the product, the sidecar is bookkeeping.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -603,24 +811,30 @@ Expected: PASS.
 
 **Interfaces:**
 - Consumes: previous snapshot (Task 5.1) + current snapshot.
-- Produces: `classify(prev: dict | None, curr: dict) -> {"added": [...], "removed": [...], "structurally_changed": [...]}` where structural change = column type change or PK/FK set change or column added/removed within an existing table; unchanged tables appear in neither list.
+- Produces: `SchemaState.classify(prev: dict | None, curr: dict) -> {"added": [...], "removed": [...], "structurally_changed": [...]}` — structural change = column type change, PK set change, FK set change, or column added/removed within an existing table; unchanged tables appear in neither list. `prev=None` → everything is `added`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 def test_classify_categories():
     prev = SchemaState.snapshot({"tables": [
-        {"name": "keep", "columns": [{"name": "c", "type": "INTEGER", "is_pk": True}], "views": []},
-        {"name": "drop", "columns": [], "views": []},
-    ]})
+        {"name": "keep", "columns": [{"name": "c", "type": "INTEGER", "is_pk": True}]},
+        {"name": "drop", "columns": []},
+    ], "views": [], "foreign_keys": []})
     curr = SchemaState.snapshot({"tables": [
-        {"name": "keep", "columns": [{"name": "c", "type": "TEXT", "is_pk": True}], "views": []},
-        {"name": "new", "columns": [], "views": []},
-    ]})
+        {"name": "keep", "columns": [{"name": "c", "type": "TEXT", "is_pk": True}]},
+        {"name": "new", "columns": []},
+    ], "views": [], "foreign_keys": []})
     r = SchemaState.classify(prev, curr)
     assert r["added"] == ["new"]
     assert r["removed"] == ["drop"]
     assert r["structurally_changed"] == ["keep"]
+
+
+def test_classify_without_previous_baseline_marks_all_added():
+    curr = SchemaState.snapshot({"tables": [{"name": "t", "columns": []}], "views": [], "foreign_keys": []})
+    r = SchemaState.classify(None, curr)
+    assert r["added"] == ["t"]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -649,36 +863,45 @@ Expected: PASS.
 
 ### Task 6.1: `db --check` diff gate
 
+Semantics are defined here, not left open: no sidecar and no existing output file → `check()` returns False (exit 0, "no existing documentation to compare"); sidecar present → classification (Task 5.2) drives the result; output file present → also print a unified diff of new render vs existing file. `check()` returns True iff anything would change. `db --check` exits 1 on True.
+
 **Files:**
-- Modify: `schema_scribe/app.py:301-346` (db command flag)
+- Modify: `schema_scribe/app.py:301-346` (db command: `--check` flag; the mutual-exclusion check lives at app.py:402-407 for dbt — mirror it for `db`)
 - Modify: `schema_scribe/workflows/db_workflow.py`
 - Test: `schema_scribe/tests/integration/test_db_workflow.py` (add)
 
 **Interfaces:**
-- Consumes: `SchemaState` (Slice 5), rendered output string.
-- Produces: `DbWorkflow.check() -> bool` — runs generation (no write), classifies against the sidecar if present, prints per-object status (`unchanged`/`added`/`removed`/`structurally-changed`), prints a unified diff of new render vs existing output file, returns True if anything would change. `db --check` exits 1 on changes (mirror dbt `--check` semantics, dbt_workflow.py:187-195).
+- Consumes: `SchemaState` (Slice 5), a render function.
+- Produces: `DbWorkflow.render() -> str` — renders the catalog to the configured writer's output string without writing (for Markdown/JSON writers; extract the render logic from the writer or reuse `io.StringIO`-style accumulation). `DbWorkflow.check() -> bool` per the semantics above.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-def test_check_reports_added_table_and_exits_changed():
+def test_check_reports_added_table(capsys):
     connector = MagicMock(spec=BaseConnector)
-    connector.get_tables.return_value = ["t"]
-    ...  # same metadata stubs as existing workflow tests
-    wf = DbWorkflow(connector, llm, writer=None, db_profile_name="mydb")
-    wf.render_catalog = lambda: {"tables": [{"name": "t", ...}]}
-    assert wf.check() is False  # with no prior state, nothing to compare → clean? define below
+    connector.get_tables.return_value = ["users"]
+    connector.get_columns.return_value = [{"name": "id", "type": "INTEGER", "is_pk": True}]
+    connector.get_views.return_value = []
+    connector.get_foreign_keys.return_value = []
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "draft"
+    wf = DbWorkflow(connector, llm, writer=None, db_profile_name="d")
+    assert wf.check() is False  # no sidecar, no output → clean
+    # with a stale sidecar → changed
+    prev = {"tables": {}, "views": [], "generated_at": "x"}
+    SchemaState.save(prev, str(tmp_path / "out.md.schema-state.json"))
+    # point wf at the sidecar path and assert check() is True + exit code path
 ```
 
-Choose semantics and assert them: with no sidecar and no existing file, `check()` returns True ("no existing documentation") and exits 1 — match this in the test; with a sidecar, classification drives the result.
+(The test needs the workflow to know the sidecar/output path — pass it via `writer_params={"output_filename": ...}` and `check()` reads the sidecar next to it.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Expected: FAIL — `check` does not exist.
+Expected: FAIL — `check` and `render` do not exist.
 
 - [ ] **Step 3: Minimal implementation**
 
-`db_workflow.check()` per Interfaces block; `--check` flag in app.py that builds the workflow with no writer and calls `check()`, exiting 1 when it returns True.
+`DbWorkflow.render()` + `check()` per the Interfaces block; `--check` flag in app.py (mutually exclusive with `--interactive`, mirroring dbt at app.py:402-407), building the workflow with no writer and exiting 1 when `check()` returns True.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -689,28 +912,42 @@ Expected: PASS.
 
 ### Task 6.2: `db --interactive` accept/edit/reject review
 
+Reject semantics: a rejected description is replaced with an empty string (and a `[rejected]` marker where the writer supports it) — the `description` key is **never removed**, because MarkdownWriter hard-indexes `column['description']` (markdown_writer.py:143) and removal would raise `KeyError` mid-write.
+
 **Files:**
 - Modify: `schema_scribe/workflows/db_workflow.py`
 - Test: `schema_scribe/tests/integration/test_db_workflow.py` (add)
 
 **Interfaces:**
 - Consumes: catalog dict from `CatalogGenerator`.
-- Produces: `DbWorkflow.run_interactive()` — after generation, for each table summary and each column description, prompts the user (typer.prompt) to accept / edit / reject; rejected descriptions are removed from the catalog; edited values replace them; then writes. Mirrors dbt `_prompt_user_for_change` (dbt_yaml_writer.py:412-447).
+- Produces: `DbWorkflow.run_interactive()` — after generation, for each table summary and each column description, prompts (typer.prompt) accept / edit / reject; rejects → `description = ""`; edits → replace value; then writes via the configured writer. Mirrors dbt `_prompt_user_for_change` (dbt_yaml_writer.py:412-447).
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 def test_interactive_applies_edits_and_drops_rejects(monkeypatch):
     connector = MagicMock(spec=BaseConnector)
-    ...
+    connector.get_tables.return_value = ["users"]
+    connector.get_columns.return_value = [
+        {"name": "id", "type": "INTEGER", "is_pk": True},
+        {"name": "email", "type": "VARCHAR", "is_pk": False},
+    ]
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.side_effect = ["sum draft", "col draft", "col2 draft"]
     writer = MagicMock(spec=BaseWriter)
-    wf = DbWorkflow(connector, llm, writer, ...)
+    wf = DbWorkflow(connector, llm, writer, db_profile_name="d")
     answers = iter(["accept", "edit:NEW DESC", "reject"])
     monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
     wf.run_interactive()
-    written = writer.write.call_args.args[0]
-    ...  # assert the edited description present, rejected one absent
+    catalog = writer.write.call_args.args[0]
+    cols = catalog["tables"][0]["columns"]
+    assert cols[0]["description"] == "col draft"
+    assert cols[1]["description"] == "NEW DESC"
+    assert cols[2]["description"] == ""
+    assert "description" in cols[2]  # key never removed
 ```
+
+(Adjust to the actual per-asset prompt order — table summaries and columns each get one prompt; match the loop order in `run_interactive`.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -718,7 +955,7 @@ Expected: FAIL — `run_interactive` does not exist.
 
 - [ ] **Step 3: Minimal implementation**
 
-`run_interactive()` per Interfaces block; `--interactive` flag in app.py (mutually exclusive with `--check`, matching the dbt flag exclusivity at app.py:373-392).
+`run_interactive()` per the Interfaces block; `--interactive` flag in app.py (mutually exclusive with `--check`).
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -745,69 +982,41 @@ Expected: PASS.
 
 **Interfaces:**
 - Consumes: existing connector implementations.
-- Produces: `pytest.mark.parametrize("connector_id", ["sqlite", "duckdb"])` real-engine suite (in-memory/temp-file fixtures) asserting the full lifecycle identically: connect → get_tables → get_columns (types, `is_pk`) → get_views → get_foreign_keys → profile (3 stats, no values) → read-only enforcement → close. Postgres/MariaDB/Snowflake get driver-mocked variants of the same assertions (params-check depth), marked so their v1 qualification is explicit: a connector is v1-supported only when it passes the real-engine suite (PRODUCT.md:55-57).
+- Produces: `pytest.mark.parametrize("connector_id", ["sqlite", "duckdb"])` real-engine tier — identical fixture schema (two tables with PK + FK, one view) and identical assertions per connector: connect → get_tables → get_columns (types, `is_pk`) → get_views → get_foreign_keys → profile (3 stats, no values) → read-only write-attempt rejection → close. Postgres/MariaDB/Snowflake get driver-mocked variants of the same assertions but are **explicitly not v1-qualified** — qualification requires a real-engine acceptance run recorded in the repo (PRODUCT.md:55-57).
 
 - [ ] **Step 1: Write the acceptance tests**
 
-Same fixture DB schema (e.g., two tables with a PK + FK, one view) built per engine; identical assertions per connector.
+Fixture factory in `conftest.py` keyed by connector id; identical assertions per connector; parametrize the real-engine tier over `["sqlite", "duckdb"]`.
 
-- [ ] **Step 2: Run to verify sqlite + duckdb pass, others are driver-mocked**
+- [ ] **Step 2: Run to verify sqlite + duckdb pass**
 
 Run: `pytest schema_scribe/tests/acceptance -v`
 Expected: sqlite/duckdb PASS against real engines; mocked variants PASS.
 
 - [ ] **Step 3: Minimal implementation**
 
-Fixture factory in `conftest.py` keyed by connector id; parametrize over `["sqlite", "duckdb"]` for the real-engine tier.
+Per the Interfaces block. Record in the suite docstring: v1-qualified = sqlite, duckdb (real-engine suite passing); postgres/mariadb/snowflake unqualified until a real-engine acceptance run is executed and recorded (needs CI or a documented manual run).
 
-- [ ] **Step 4: Record v1 qualification state**
+- [ ] **Step 4: Commit** (title `test: add shared connector acceptance suite`)
 
-Document in the acceptance test docstring: v1-supported today = sqlite, duckdb (real-engine suite passing). Postgres/MariaDB/Snowflake remain unqualified until a real-engine acceptance run is executed and recorded.
-
-- [ ] **Step 5: Commit** (title `test: add shared connector acceptance suite`)
-
-### Task 7.2: Test hygiene — dead fixture, workflow mock, composition smoke
+### Task 7.2: Test hygiene — dead fixture, workflow mock, prompt assertion
 
 **Files:**
-- Modify: `schema_scribe/tests/conftest.py:15-48` (remove dead `mock_llm_client` or repoint it)
-- Modify: `schema_scribe/tests/integration/test_db_workflow.py:26-32` (mock `get_tables` to return `List[str]`)
-- Add: `schema_scribe/tests/integration/test_db_workflow_composition.py` (new)
+- Modify: `schema_scribe/tests/conftest.py:15-48` (delete the dead `mock_llm_client` fixture — it patches nonexistent modules `schema_scribe.core.db_workflow.init_llm` / `schema_scribe.core.dbt_workflow.init_llm`)
+- Modify: `schema_scribe/tests/integration/test_db_workflow.py:28-32` (mock `get_tables` to return `List[str]` to match the real contract)
+- Modify: `schema_scribe/tests/integration/test_db_workflow.py:252-265` — **existing prompt assertion update required**: the assertion searches for `"Table: {'name': 'users', 'comment': None}"`, which pins the dict shape; after the mock change the prompt contains the string table name — update the search term accordingly (the prompt for a column of table "users" will contain the table name directly, e.g., `Table: users` — adapt the assertion, keep its intent: find the users.id prompt)
 
 **Interfaces:**
-- Produces: real `SQLiteConnector` + mocked LLM + real `MarkdownWriter` through `DbWorkflow` produces a valid catalog file (the audit's open question: real composition never exercised).
+- Produces: no dead fixtures; workflow tests mock the same shapes the real connector produces; the full suite passes.
 
-- [ ] **Step 1: Write the composition smoke test**
+- [ ] **Step 1: Make the changes per the Files block**
 
-```python
-def test_real_sqlite_composition(tmp_path):
-    db_path = tmp_path / "fixture.db"
-    ...  # seed two tables + FK using sqlite3 directly (reuse acceptance fixture pattern)
-    connector = SQLiteConnector()
-    connector.connect({"db_path": str(db_path)})
-    llm = MagicMock(spec=BaseLLMClient)
-    llm.get_description.return_value = "draft description"
-    out = tmp_path / "catalog.md"
-    writer = MarkdownWriter()
-    wf = DbWorkflow(connector, llm, writer, db_profile_name="fixture",
-                    writer_params={"output_filename": str(out)})
-    wf.run()
-    assert out.exists() and "draft description" in out.read_text()
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Expected: FAIL or PASS — record actual result. If it fails, that failure is the composition bug to fix in this task (e.g., `get_tables` shape mismatch).
-
-- [ ] **Step 3: Minimal implementation**
-
-Remove the dead conftest fixture; align the workflow test mock with the real `List[str]` contract; fix whatever the smoke test exposes.
-
-- [ ] **Step 4: Run the full suite**
+- [ ] **Step 2: Run the full suite**
 
 Run: `./scripts/verify.sh`
 Expected: PASS.
 
-- [ ] **Step 5: Commit** (title `test: exercise real connector composition; remove dead fixtures`)
+- [ ] **Step 3: Commit** (title `test: align workflow mocks with real connector contracts`)
 
 ### Slice 7 gate
 
@@ -822,5 +1031,6 @@ Expected: PASS.
 - Benchmark harness: query count / elapsed / LLM calls (PRODUCT.md:117) — deferred; the existing `call_count == 12` assertion (test_db_workflow.py:277) is the seed.
 - Drift checks in CI, dbt removed-model detection (`dbt --check` reverse set difference, dbt_yaml_writer.py:100-104) — product-sequence step 2.
 - PostgresCommentWriter connection-lifecycle bug (db_workflow.py:71-76 vs postgres_comment_writer.py:73-76) — adapter qualification.
-- Snowflake read-only enforcement and real-engine qualification — adapter qualification.
+- Snowflake real-engine qualification and read-only enforcement (declared not v1-supported; docstring updated in Task 1.4) — adapter qualification.
+- dbt_markdown_writer and mermaid_writer atomicity (they remain truncate-on-open; PRODUCT.md:50 names only Markdown/JSON for v1) — adapter qualification.
 - Hosted demo — product-sequence step 3.
