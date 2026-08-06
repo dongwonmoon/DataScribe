@@ -42,6 +42,7 @@ notion = ["notion-client>=2.0.0"]
 server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0"]
 
 test = [
+    "build>=1.2.2",
     "pytest>=7.0.0",
     "pytest-mock>=3.0.0",
     "dbt-core>=1.7.0",
@@ -49,6 +50,7 @@ test = [
 ]
 
 all = [
+    "build>=1.2.2",
     "psycopg2-binary>=2.9.0",
     "mysql-connector-python>=8.0.0",
     "google-generativeai>=0.4.0",

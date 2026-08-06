@@ -45,6 +45,17 @@ cd SchemaScribe
 pip install -e .[all] # Installs all optional dependencies in editable mode
 ```
 
+### Contributor setup
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e '.[all]'
+./scripts/verify.sh
+```
+
+Project scope, architecture, and testing ownership are indexed in
+[`docs/README.md`](docs/README.md).
+
 ### 2. Initialize
 
 Run the interactive wizard. It will guide you through setting up your database and LLM, automatically creating `config.yaml` and a secure `.env` file for your API keys.
