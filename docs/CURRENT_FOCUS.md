@@ -8,6 +8,14 @@
 - Gate: clean-clone setup is documented and `./scripts/verify.sh` passes locally
   and in GitHub Actions.
 
+## Evidence
+
+- Local foundation gate passed on 2026-08-06 with Python 3.12.13.
+- `./scripts/verify.sh` passed 72 tests, built the sdist and wheel, exercised
+  CLI help without provider calls, and validated the OpenCode instruction link.
+- GitHub Actions remains unverified until the branch is pushed.
+- Repository transfer remains pending and user-owned.
+
 ## Known Baseline
 
 - 72 tests pass when all optional dependencies are installed.
