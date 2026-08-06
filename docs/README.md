@@ -5,6 +5,7 @@ decision or change was developed, but do not override active owners or source.
 
 | Document | Owns |
 | --- | --- |
+| `PRODUCT.md` | First user, product promise, v1 scope, trust boundaries, and success criteria |
 | `CURRENT_FOCUS.md` | Current workstream, completion gate, and deferred work |
 | `ARCHITECTURE.md` | Runtime boundaries established by current source |
 | `TESTING.md` | Setup, deterministic verification, and evaluation policy |

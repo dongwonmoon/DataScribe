@@ -2,14 +2,18 @@
 
 ## Active Workstream
 
-- Branch: `chore/project-foundation`
-- Goal: portable setup, canonical verification, indexed active documents, and
-  tool-neutral AI instructions.
-- Gate: clean-clone setup is documented and `./scripts/verify.sh` passes locally
-  and in GitHub Actions.
+- Branch: `docs/v1-product-contract`
+- Goal: establish the first user, v1 product promise, trust boundaries,
+  non-goals, delivery sequence, and measurable success criteria.
+- Gate: the user reviews and approves `docs/PRODUCT.md` as the active product
+  contract.
 
 ## Evidence
 
+- The user selected a local database documentation engine before bounded
+  schema-change checks and a thin hosted demonstration.
+- The proposed contract is recorded in `docs/PRODUCT.md`; implementation has
+  not been authorized by this documentation step.
 - Local foundation gate passed on 2026-08-06 with Python 3.12.13.
 - `./scripts/verify.sh` passed 72 tests, built the sdist and wheel, exercised
   CLI help without provider calls, and validated the OpenCode instruction link.
@@ -29,7 +33,6 @@ workstream.
 
 ## Deferred
 
-- Product brief and release scope
 - Engine hardening and optional-dependency boundaries
 - Real-model evaluation fixture and human-review rubric
 - Hosted service, authentication, tenancy, and credential handling
