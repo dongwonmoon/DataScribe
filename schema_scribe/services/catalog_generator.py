@@ -171,7 +171,7 @@ class CatalogGenerator:
                 table_name=table_name, column_list_str=column_list_str
             )
             table_summary = self.llm_client.get_description(
-                table_prompt, max_tokens=200
+                table_prompt, max_tokens=512
             )
 
             # For each column, profile it and generate a description using the LLM
@@ -198,12 +198,11 @@ class CatalogGenerator:
                     profile_context=profile_context,
                 )
 
-                # Get the column description from the LLM client.
-                # 200 (not 50): reasoning models (e.g. gemini-3.5-flash) burn
-                # the whole output budget on thinking tokens; 50 left no
-                # output text at all (verified live 2026-08-07).
+                # 512 (not 200): reasoning models (e.g. gemma-4-26b) emit a
+                # verbose thought part before the answer; 200 left only the
+                # thought and no answer text (verified live 2026-08-07).
                 description = self.llm_client.get_description(
-                    prompt, max_tokens=200
+                    prompt, max_tokens=512
                 )
 
                 enriched_columns.append(
@@ -236,7 +235,7 @@ class CatalogGenerator:
             prompt = VIEW_SUMMARY_PROMPT.format(
                 view_name=view_name, view_definition=view_sql
             )
-            summary = self.llm_client.get_description(prompt, max_tokens=200)
+            summary = self.llm_client.get_description(prompt, max_tokens=512)
 
             enriched_views.append(
                 {
