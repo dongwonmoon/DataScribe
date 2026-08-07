@@ -16,6 +16,9 @@ into a standard, machine-readable JSON format. This is particularly useful for:
 
 from typing import Dict, Any
 import json
+import os
+import stat
+import tempfile
 
 from schema_scribe.utils.logger import get_logger
 from schema_scribe.core.interfaces import BaseWriter
@@ -34,6 +37,36 @@ class JsonWriter(BaseWriter):
     catalog data into a machine-readable format, suitable for programmatic
     consumption or as an intermediate data representation.
     """
+
+    def _atomic_write(self, output_filename: str, content: str) -> None:
+        """
+        Writes `content` to `output_filename` atomically.
+
+        The full content is written to a temp file in the target directory and
+        then moved onto the target with `os.replace`, so a mid-write failure
+        never leaves a truncated or partially written target file. The temp
+        file is removed on any failure.
+
+        The temp file is created mode 0600 by `tempfile.mkstemp`; the target's
+        existing permission bits are preserved when it already exists,
+        otherwise the umask-derived default for a new file is applied.
+        """
+        target_dir = os.path.dirname(os.path.abspath(output_filename))
+        fd, tmp_name = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            if os.path.exists(output_filename):
+                os.chmod(tmp_name, stat.S_IMODE(os.stat(output_filename).st_mode))
+            else:
+                current_umask = os.umask(0)
+                os.umask(current_umask)
+                os.chmod(tmp_name, 0o666 & ~current_umask)
+            os.replace(tmp_name, output_filename)
+        except BaseException:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+            raise
 
     def write(self, catalog_data: Dict[str, Any], **kwargs):
         """
@@ -54,9 +87,8 @@ class JsonWriter(BaseWriter):
             )
 
         try:
-            with open(output_filename, "w", encoding="utf-8") as f:
-                logger.info(f"Writing data catalog to '{output_filename}'.")
-                json.dump(catalog_data, f, indent=2)
+            logger.info(f"Writing data catalog to '{output_filename}'.")
+            self._atomic_write(output_filename, json.dumps(catalog_data, indent=2))
             logger.info(f"Successfully wrote catalog to '{output_filename}'.")
         except IOError as e:
             logger.error(

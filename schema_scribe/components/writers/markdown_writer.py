@@ -15,6 +15,9 @@ rendered in various platforms (e.g., GitHub, Confluence).
 """
 
 from typing import Dict, List, Any
+import os
+import stat
+import tempfile
 
 from schema_scribe.utils.logger import get_logger
 from schema_scribe.core.interfaces import BaseWriter
@@ -66,6 +69,36 @@ class MarkdownWriter(BaseWriter):
         code.append("```")
         return "\n".join(code)
 
+    def _atomic_write(self, output_filename: str, content: str) -> None:
+        """
+        Writes `content` to `output_filename` atomically.
+
+        The full content is written to a temp file in the target directory and
+        then moved onto the target with `os.replace`, so a mid-write failure
+        never leaves a truncated or partially written target file. The temp
+        file is removed on any failure.
+
+        The temp file is created mode 0600 by `tempfile.mkstemp`; the target's
+        existing permission bits are preserved when it already exists,
+        otherwise the umask-derived default for a new file is applied.
+        """
+        target_dir = os.path.dirname(os.path.abspath(output_filename))
+        fd, tmp_name = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            if os.path.exists(output_filename):
+                os.chmod(tmp_name, stat.S_IMODE(os.stat(output_filename).st_mode))
+            else:
+                current_umask = os.umask(0)
+                os.umask(current_umask)
+                os.chmod(tmp_name, 0o666 & ~current_umask)
+            os.replace(tmp_name, output_filename)
+        except BaseException:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+            raise
+
     def write(self, catalog_data: Dict[str, List[Dict[str, Any]]], **kwargs):
         """
         Writes the catalog data to a Markdown file.
@@ -92,62 +125,64 @@ class MarkdownWriter(BaseWriter):
             )
 
         try:
-            with open(output_filename, "w", encoding="utf-8") as f:
-                logger.info(
-                    f"Writing data catalog for '{db_profile_name}' to '{output_filename}'."
-                )
-                # 1. Main Title
-                f.write(f"# 📁 Data Catalog for {db_profile_name}\n")
+            logger.info(
+                f"Writing data catalog for '{db_profile_name}' to '{output_filename}'."
+            )
+            lines = []
 
-                # 2. ERD Section
-                f.write("\n## 🚀 Entity Relationship Diagram (ERD)\n\n")
-                foreign_keys = catalog_data.get("foreign_keys", [])
-                mermaid_code = self._generate_erd_mermaid(foreign_keys)
-                f.write(mermaid_code + "\n")
+            # 1. Main Title
+            lines.append(f"# 📁 Data Catalog for {db_profile_name}\n")
 
-                # 3. Views Section
-                f.write("\n## 🔎 Views\n\n")
-                views = catalog_data.get("views", [])
-                if not views:
-                    f.write("No views found in this database.\n")
-                else:
-                    for view in views:
-                        f.write(f"### 📄 View: `{view['name']}`\n\n")
-                        f.write("**AI-Generated Summary:**\n")
-                        f.write(
-                            f"> {view.get('ai_summary', '(No summary available)')}\n\n"
-                        )
-                        f.write("**SQL Definition:**\n")
-                        f.write(
-                            f"```sql\n{view.get('definition', 'N/A')}\n```\n\n"
-                        )
+            # 2. ERD Section
+            lines.append("\n## 🚀 Entity Relationship Diagram (ERD)\n\n")
+            foreign_keys = catalog_data.get("foreign_keys", [])
+            mermaid_code = self._generate_erd_mermaid(foreign_keys)
+            lines.append(mermaid_code + "\n")
 
-                # 4. Tables Section
-                f.write("\n## 🗂️ Tables\n\n")
-                tables = catalog_data.get("tables", [])
-                if not tables:
-                    f.write("No tables found in this database.\n")
-                else:
-                    for table in tables:
-                        f.write(f"### 📄 Table: `{table['name']}`\n\n")
-                        f.write("**AI-Generated Summary:**\n")
-                        f.write(
-                            f"> {table.get('ai_summary', '(No summary available)')}\n\n"
+            # 3. Views Section
+            lines.append("\n## 🔎 Views\n\n")
+            views = catalog_data.get("views", [])
+            if not views:
+                lines.append("No views found in this database.\n")
+            else:
+                for view in views:
+                    lines.append(f"### 📄 View: `{view['name']}`\n\n")
+                    lines.append("**AI-Generated Summary:**\n")
+                    lines.append(
+                        f"> {view.get('ai_summary', '(No summary available)')}\n\n"
+                    )
+                    lines.append("**SQL Definition:**\n")
+                    lines.append(
+                        f"```sql\n{view.get('definition', 'N/A')}\n```\n\n"
+                    )
+
+            # 4. Tables Section
+            lines.append("\n## 🗂️ Tables\n\n")
+            tables = catalog_data.get("tables", [])
+            if not tables:
+                lines.append("No tables found in this database.\n")
+            else:
+                for table in tables:
+                    lines.append(f"### 📄 Table: `{table['name']}`\n\n")
+                    lines.append("**AI-Generated Summary:**\n")
+                    lines.append(
+                        f"> {table.get('ai_summary', '(No summary available)')}\n\n"
+                    )
+                    lines.append(
+                        "| Column Name | Data Type | AI-Generated Description |\n"
+                    )
+                    lines.append("| :--- | :--- | :--- |\n")
+                    for column in table.get("columns", []):
+                        name_cell = (
+                            f"🔑 `{column['name']}`"
+                            if column.get("is_pk", False)
+                            else f"`{column['name']}`"
                         )
-                        f.write(
-                            "| Column Name | Data Type | AI-Generated Description |\n"
+                        lines.append(
+                            f"| {name_cell} | `{column['type']}` | {column['description']} |\n"
                         )
-                        f.write("| :--- | :--- | :--- |\n")
-                        for column in table.get("columns", []):
-                            name_cell = (
-                                f"🔑 `{column['name']}`"
-                                if column.get("is_pk", False)
-                                else f"`{column['name']}`"
-                            )
-                            f.write(
-                                f"| {name_cell} | `{column['type']}` | {column['description']} |\n"
-                            )
-                        f.write("\n")
+                    lines.append("\n")
+            self._atomic_write(output_filename, "".join(lines))
             logger.info(f"Successfully wrote catalog to '{output_filename}'.")
         except IOError as e:
             raise WriterError(
