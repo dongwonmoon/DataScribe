@@ -33,10 +33,14 @@
     client now retries 429 with the server-advised delay (up to 3).
   - `requirements.txt` regenerated via `uv pip compile` (pip-compile is
     broken against current pip); clean-install smoke test passed.
-  - First real-model evaluation data recorded: gemma-4-26b-a4b-it = poor
-    instruction following through this endpoint; gemma-4-31b = noisy;
-    gemini-3.1-flash-lite = clean, fast, quota-tolerant. Per-model prompt
-    variants rejected by user decision (single model-agnostic prompt set).
+  - First real-model evaluation data recorded (re-verified after the SDK
+    migration): gemma-4-26b-a4b-it and gemma-4-31b-it answer correctly via
+    `google.genai` — earlier "prompt echo"/noise observations were the old
+    SDK reading the separate `thought` part, not model behavior. Their
+    verbose thinking still consumes token budgets (handled by the
+    doubled-budget retry) and free-tier quota. gemini-3.1-flash-lite = clean,
+    fast, quota-tolerant. Per-model prompt variants rejected by user decision
+    (single model-agnostic prompt set).
 - The full plan executed with subagent-driven development: every task passed
   a task review; two final whole-branch reviews (slices 0-7, slice 8) both
   passed after fix waves. The shared acceptance suite found DuckDB fails the

@@ -19,14 +19,3 @@ overridden here.
   agents, or tool results.
 - Keep provider credentials, personal model selection, and authentication out
   of committed project configuration.
-
-## Session Environment
-
-- The user develops either on the Mac mini directly or from an iPad over
-  SSH + tmux + tailscale (they say which). On iPad sessions:
-  - `open <file>` / GUI side effects are useless to them — show file
-    content in the terminal (sed/grep excerpts, limited output) instead.
-  - Prefer non-interactive CLI flags; `--interactive` prompts are painful
-    over iPad keyboards.
-  - Long commands survive disconnects (tmux + persistent shell); don't
-    restart work after an SSH drop.
