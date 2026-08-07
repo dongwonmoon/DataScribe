@@ -233,3 +233,16 @@ def test_empty_database():
     assert landscape["clusters"] == {"other": []}
     assert landscape["core_tables"] == []
     assert landscape["relationship_map"] == {"nodes": [], "edges": []}
+
+
+def test_landscape_render_via_markdown_writer(tmp_path):
+    """The brief's red test: fixture landscape renders Clusters and Core tables sections."""
+    from schema_scribe.components.writers import MarkdownWriter
+
+    db_path = tmp_path / "legacy.db"
+    db_fixtures.build_sqlite(str(db_path), "legacy-rich")
+    tables, cols, fks = _collect(db_path)
+    landscape = build_landscape(tables, cols, fks)
+    out = MarkdownWriter().render_landscape(landscape, db_profile_name="legacy")
+    assert "Clusters" in out and "Core tables" in out
+    assert "TBL_ACC_MST" in out  # a legacy cluster heading survived the render

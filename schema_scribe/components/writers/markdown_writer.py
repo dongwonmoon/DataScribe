@@ -177,6 +177,158 @@ class MarkdownWriter(BaseWriter):
                 lines.append("\n")
         return "".join(lines)
 
+    def render_landscape(
+        self, landscape: Dict[str, Any], hints: Dict[str, Any] = None, **kwargs
+    ) -> str:
+        """
+        Builds the Markdown landscape report string without writing.
+
+        The landscape is a distinct artifact from the data catalog (Slice
+        8.1/8.2): a deterministic, LLM-free orientation document answering
+        "how big is this database, where do I start?". It renders the four
+        ``build_landscape`` sections — Scale, Clusters, Core tables, and
+        Relationship map — and optionally inlines LLM name-decoding hints
+        (``hints={"clusters": {...}, "core_tables": {...}}``).
+
+        Args:
+            landscape: A dict from ``build_landscape``.
+            hints: Optional ``{"clusters": {name: hint},
+                "core_tables": {table: hint}}``.
+            **kwargs: Must contain `db_profile_name`.
+
+        Raises:
+            ConfigError: If `db_profile_name` is not provided.
+        """
+        db_profile_name = kwargs.get("db_profile_name")
+        if not db_profile_name:
+            raise ConfigError(
+                "MarkdownWriter.render_landscape requires 'db_profile_name' in kwargs."
+            )
+        hints = hints or {}
+
+        lines = [f"# 🏞️ Landscape Report for {db_profile_name}\n"]
+
+        # 1. Scale
+        lines.append("\n## Scale\n\n")
+        scale = landscape["scale"]
+        column_types = (
+            ", ".join(
+                f"{column_type} ({count})"
+                for column_type, count in scale["column_types"].items()
+            )
+            or "-"
+        )
+        lines.append("| Metric | Value |\n| --- | --- |\n")
+        lines.append(f"| Tables | {scale['tables']} |\n")
+        lines.append(f"| Columns | {scale['columns']} |\n")
+        lines.append(f"| Column types | {column_types} |\n")
+
+        # 2. Clusters
+        lines.append("\n## Clusters\n\n")
+        clusters = landscape["clusters"]
+        cluster_hints = hints.get("clusters", {})
+        non_empty = [name for name, members in clusters.items() if members]
+        if not non_empty:
+            lines.append("No tables found in this database.\n")
+        else:
+            for name in sorted(non_empty):
+                members = clusters[name]
+                lines.append(f"### `{name}` ({len(members)} tables)\n\n")
+                hint = cluster_hints.get(name)
+                if hint:
+                    lines.append(f"> **Hint:** {hint}\n\n")
+                for member in members:
+                    lines.append(f"- `{member}`\n")
+                lines.append("\n")
+
+        # 3. Core tables
+        lines.append("## Core tables\n\n")
+        core = landscape["core_tables"]
+        if not core:
+            lines.append("No core tables found (no foreign key hubs).\n")
+        else:
+            lines.append("| Rank | Table | Degree |\n| --- | --- | --- |\n")
+            for rank, entry in enumerate(core, 1):
+                lines.append(
+                    f"| {rank} | `{entry['table']}` | {entry['degree']} |\n"
+                )
+            core_hints = hints.get("core_tables", {})
+            if core_hints:
+                lines.append("\nHints:\n\n")
+                for entry in core:
+                    hint = core_hints.get(entry["table"])
+                    if hint:
+                        lines.append(f"- `{entry['table']}` — {hint}\n")
+
+        # 4. Relationship map
+        lines.append("\n## Relationship map\n\n")
+        relationship = landscape["relationship_map"]
+        nodes = relationship["nodes"]
+        if nodes:
+            lines.append(
+                f"Nodes ({len(nodes)}): "
+                + ", ".join(f"`{node}`" for node in nodes)
+                + "\n"
+            )
+        else:
+            lines.append("No nodes (no tables).\n")
+        edges = relationship["edges"]
+        if edges:
+            lines.append("\nEdges:\n\n")
+            lines.append(
+                "| Source | Source column | Target | Target column |\n"
+                "| --- | --- | --- | --- |\n"
+            )
+            for edge in edges:
+                lines.append(
+                    f"| `{edge['source']}` | `{edge['source_column']}` | "
+                    f"`{edge['target']}` | `{edge['target_column']}` |\n"
+                )
+        else:
+            lines.append("\nNo edges (no foreign keys).\n")
+
+        return "".join(lines)
+
+    def write_landscape(self, landscape: Dict[str, Any], **kwargs) -> None:
+        """
+        Writes the landscape report to a Markdown file atomically.
+
+        Args:
+            landscape: A dict from ``build_landscape``.
+            **kwargs: Must contain `output_filename`, `db_profile_name`;
+                may contain `hints` (same shape as ``render_landscape``).
+
+        Raises:
+            ConfigError: If required `kwargs` are missing.
+            WriterError: If an error occurs during file writing.
+        """
+        output_filename = kwargs.get("output_filename")
+        db_profile_name = kwargs.get("db_profile_name")
+        if not output_filename or not db_profile_name:
+            raise ConfigError(
+                "MarkdownWriter.write_landscape requires 'output_filename' "
+                "and 'db_profile_name' in kwargs."
+            )
+        try:
+            logger.info(
+                f"Writing landscape report for '{db_profile_name}' "
+                f"to '{output_filename}'."
+            )
+            content = self.render_landscape(
+                landscape,
+                hints=kwargs.get("hints"),
+                db_profile_name=db_profile_name,
+            )
+            self._atomic_write(output_filename, content)
+            logger.info(
+                f"Successfully wrote landscape report to '{output_filename}'."
+            )
+        except IOError as e:
+            raise WriterError(
+                f"Error writing landscape report to file "
+                f"'{output_filename}': {e}"
+            ) from e
+
     def write(self, catalog_data: Dict[str, List[Dict[str, Any]]], **kwargs):
         """
         Writes the catalog data to a Markdown file.

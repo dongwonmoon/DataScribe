@@ -21,10 +21,22 @@ from schema_scribe.core.interfaces import (
     BaseWriter,
 )
 from schema_scribe.services.catalog_generator import CatalogGenerator
+from schema_scribe.services.landscape import build_landscape
 from schema_scribe.services.schema_state import SchemaState
+from schema_scribe.components.writers.markdown_writer import MarkdownWriter
+from schema_scribe.prompts import (
+    LANDSCAPE_CLUSTER_HINT_PROMPT,
+    LANDSCAPE_TABLE_HINT_PROMPT,
+)
 from schema_scribe.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Hints cap (documented decision, Task 8.2): one prompt per cluster for the
+# top clusters by member count, and one prompt per core table (build_landscape
+# already caps core tables at 10) — at most 20 LLM calls on legacy-rich.
+_HINT_CLUSTER_CAP = 10
+_HINT_MAX_TOKENS = 60
 
 
 class DbWorkflow:
@@ -269,6 +281,101 @@ class DbWorkflow:
                 print("\n".join(diff))
 
         return changed
+
+    def landscape(self, hints: bool = False) -> None:
+        """
+        Renders the deterministic landscape report (Slice 8.2).
+
+        Collects metadata through the connector, builds the landscape with
+        the pure ``build_landscape`` service, optionally enriches it with
+        LLM name-decoding hints (disclosure logged before the first
+        transmission, Slice 3 rule), and then either prints the rendered
+        Markdown to stdout (no writer injected, like dry-run) or writes it
+        through the injected writer's landscape path.
+
+        The deterministic path never needs an LLM client: the caller builds
+        the workflow with ``llm_client=None`` unless ``hints=True``.
+
+        Raises:
+            ValueError: If ``hints=True`` without an LLM client, or the
+                injected writer has no landscape path (the landscape is a
+                Markdown artifact; only MarkdownWriter supports it).
+        """
+        try:
+            tables = self.db_connector.get_tables()
+            columns_by_table = {
+                table: self.db_connector.get_columns(table) for table in tables
+            }
+            foreign_keys = self.db_connector.get_foreign_keys()
+            landscape = build_landscape(tables, columns_by_table, foreign_keys)
+            hint_map = self._landscape_hints(landscape) if hints else None
+
+            if self.writer is not None:
+                write_landscape = getattr(self.writer, "write_landscape", None)
+                if not callable(write_landscape):
+                    raise ValueError(
+                        "Landscape output requires a MarkdownWriter output "
+                        f"profile (got {type(self.writer).__name__})."
+                    )
+                write_landscape(
+                    landscape,
+                    hints=hint_map,
+                    output_filename=self.writer_params.get("output_filename"),
+                    db_profile_name=self.db_profile_name,
+                )
+            else:
+                rendered = MarkdownWriter().render_landscape(
+                    landscape,
+                    hints=hint_map,
+                    db_profile_name=self.db_profile_name,
+                )
+                print(rendered)
+        finally:
+            logger.info(f"Closing DB connection for {self.db_profile_name}...")
+            self.db_connector.close()
+
+    def _landscape_hints(self, landscape: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Adds LLM name-decoding hints to the landscape: one prompt per
+        cluster (top ``_HINT_CLUSTER_CAP`` by member count, then name) and
+        one prompt per core table. Discloses payload counts and provider
+        before the first transmission, mirroring the Slice 3 disclosure.
+        """
+        if self.llm_client is None:
+            raise ValueError("--landscape-hints requires an LLM client.")
+
+        provider = self.provider_name or "unknown"
+        clusters = sorted(
+            landscape["clusters"].items(),
+            key=lambda item: (-len(item[1]), item[0]),
+        )[:_HINT_CLUSTER_CAP]
+        core = landscape["core_tables"]
+
+        logger.info(
+            f"Sending {len(clusters)} cluster hints and {len(core)} "
+            f"core-table hints to provider '{provider}'. Metadata: "
+            f"clusters={len(landscape['clusters'])}, "
+            f"core_tables={len(core)}."
+        )
+
+        hint_map: Dict[str, Any] = {"clusters": {}, "core_tables": {}}
+        for name, members in clusters:
+            prompt = LANDSCAPE_CLUSTER_HINT_PROMPT.format(
+                cluster_name=name,
+                member_count=len(members),
+                member_tables=", ".join(members[:_HINT_CLUSTER_CAP]),
+            )
+            hint_map["clusters"][name] = self.llm_client.get_description(
+                prompt, max_tokens=_HINT_MAX_TOKENS
+            )
+        for entry in core:
+            prompt = LANDSCAPE_TABLE_HINT_PROMPT.format(
+                table_name=entry["table"]
+            )
+            hint_map["core_tables"][entry["table"]] = (
+                self.llm_client.get_description(prompt, max_tokens=_HINT_MAX_TOKENS)
+            )
+        return hint_map
 
     def run(self):
         """

@@ -5,7 +5,7 @@ Unit tests for the MarkdownWriter.
 import pytest
 
 from schema_scribe.components.writers import MarkdownWriter
-from schema_scribe.core.exceptions import WriterError
+from schema_scribe.core.exceptions import ConfigError, WriterError
 
 
 @pytest.fixture
@@ -120,3 +120,114 @@ def test_failed_write_preserves_previous_output(
         )
 
     assert target.read_text() == "PREVIOUS CONTENT"
+
+
+def _synthetic_landscape():
+    """A minimal landscape dict in the build_landscape contract shape."""
+    return {
+        "scale": {
+            "tables": 4,
+            "columns": 6,
+            "column_types": {"INTEGER": 4, "TEXT": 2},
+        },
+        "clusters": {
+            "dim": ["dim_customer", "dim_product"],
+            "other": ["users", "events"],
+        },
+        "core_tables": [
+            {"table": "orders", "degree": 3},
+            {"table": "users", "degree": 1},
+        ],
+        "relationship_map": {
+            "nodes": ["dim_customer", "dim_product", "events", "orders", "users"],
+            "edges": [
+                {
+                    "source": "orders",
+                    "source_column": "user_id",
+                    "target": "users",
+                    "target_column": "id",
+                }
+            ],
+        },
+    }
+
+
+def test_landscape_render_includes_all_sections():
+    """The landscape render produces Scale, Clusters, Core tables, and Relationship map."""
+    writer = MarkdownWriter()
+    out = writer.render_landscape(_synthetic_landscape(), db_profile_name="test_db")
+
+    assert "# 🏞️ Landscape Report for test_db" in out
+    assert "## Scale" in out
+    assert "## Clusters" in out
+    assert "## Core tables" in out
+    assert "## Relationship map" in out
+    assert "| Tables | 4 |" in out
+    assert "| Columns | 6 |" in out
+    assert "| Column types | INTEGER (4), TEXT (2) |" in out
+    assert "### `dim` (2 tables)" in out
+    assert "- `dim_customer`" in out
+    assert "| 1 | `orders` | 3 |" in out
+    assert "Nodes (5):" in out
+    assert "| `orders` | `user_id` | `users` | `id` |" in out
+
+
+def test_landscape_render_includes_hints():
+    """Cluster and core-table hints render inline when provided."""
+    hints = {
+        "clusters": {"dim": "Dimension tables."},
+        "core_tables": {"orders": "Order header records."},
+    }
+    out = MarkdownWriter().render_landscape(
+        _synthetic_landscape(), hints=hints, db_profile_name="test_db"
+    )
+
+    assert "> **Hint:** Dimension tables." in out
+    assert "`orders` — Order header records." in out
+
+
+def test_landscape_render_without_hints_omits_hint_sections():
+    """No hints passed, no hint lines rendered."""
+    out = MarkdownWriter().render_landscape(_synthetic_landscape(), db_profile_name="t")
+    assert "**Hint:**" not in out
+    assert "Hints:" not in out
+
+
+def test_landscape_render_empty_database():
+    """Empty landscape renders every section with an explicit empty state."""
+    empty = {
+        "scale": {"tables": 0, "columns": 0, "column_types": {}},
+        "clusters": {"other": []},
+        "core_tables": [],
+        "relationship_map": {"nodes": [], "edges": []},
+    }
+    out = MarkdownWriter().render_landscape(empty, db_profile_name="t")
+    assert "| Tables | 0 |" in out
+    assert "No tables found" in out
+    assert "No core tables found" in out
+    assert "No edges (no foreign keys)" in out
+
+
+def test_landscape_render_requires_db_profile_name():
+    with pytest.raises(ConfigError):
+        MarkdownWriter().render_landscape(_synthetic_landscape())
+
+
+def test_landscape_write_writes_file(tmp_path):
+    output = tmp_path / "landscape.md"
+    MarkdownWriter().write_landscape(
+        _synthetic_landscape(),
+        output_filename=str(output),
+        db_profile_name="test_db",
+    )
+    assert output.exists()
+    content = output.read_text()
+    assert "## Core tables" in content
+    assert "## Relationship map" in content
+
+
+def test_landscape_write_requires_output_filename(tmp_path):
+    with pytest.raises(ConfigError):
+        MarkdownWriter().write_landscape(
+            _synthetic_landscape(), db_profile_name="test_db"
+        )

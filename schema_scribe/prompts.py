@@ -256,3 +256,45 @@ Design Rationale:
 - **Clear Rules**: The bullet points provide explicit rules for the model to follow when making
   its judgment, improving accuracy and consistency.
 """
+
+LANDSCAPE_CLUSTER_HINT_PROMPT = """
+You are a data analyst. Decode the meaning of a table naming-convention group so a user can start reading a large legacy database without opening every table.
+
+Cluster: {cluster_name}
+Member count: {member_count}
+Member tables: {member_tables}
+
+In one sentence, what does this group of tables most likely represent?
+"""
+"""
+A prompt to generate a name-decoding hint for one landscape cluster.
+
+Placeholders:
+- `{cluster_name}`: The cluster key derived from the naming convention (e.g. `TBL_CUST_MST`).
+- `{member_count}`: The number of tables in the cluster.
+- `{member_tables}`: A comma-separated sample of member table names.
+
+Design Rationale:
+- **Brevity**: "In one sentence" keeps the hint short enough to render inline.
+- **No data values**: the prompt carries table names only — no raw column
+  values, consistent with the privacy boundary.
+"""
+
+LANDSCAPE_TABLE_HINT_PROMPT = """
+You are a data analyst. Decode the meaning of a cryptic legacy table name so a user knows what it stores before opening it.
+
+Table: {table_name}
+
+In one short sentence, what does this table most likely store?
+"""
+"""
+A prompt to generate a name-decoding hint for one core table.
+
+Placeholders:
+- `{table_name}`: The table name to decode (e.g. `TBL_CUST_MST_2021`).
+
+Design Rationale:
+- **Minimal payload**: the prompt carries only the table name — nothing else
+  about the schema or its data is transmitted.
+- **Brevity**: "one short sentence" matches the inline hint rendering.
+"""

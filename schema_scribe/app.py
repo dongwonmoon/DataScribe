@@ -343,12 +343,38 @@ def scan_db(
         "or reject each AI-generated summary and description before "
         "writing.",
     ),
+    landscape: bool = typer.Option(
+        False,
+        "--landscape",
+        help="Render the deterministic landscape report (scale, clusters, "
+        "core tables, relationship map) as Markdown.",
+    ),
+    landscape_hints: bool = typer.Option(
+        False,
+        "--landscape-hints",
+        help="Add LLM name-decoding hints to the landscape report "
+        "(requires --landscape).",
+    ),
 ):
     """
     Scans a database, generates documentation, and writes it to an output.
     """
     if full and not dry_run:
         typer.echo("Error: --full requires --dry-run.", err=True)
+        raise typer.Exit(code=1)
+
+    if landscape_hints and not landscape:
+        typer.echo(
+            "Error: --landscape-hints requires --landscape.", err=True
+        )
+        raise typer.Exit(code=1)
+
+    if landscape and (dry_run or check or interactive):
+        typer.echo(
+            "Error: --landscape is mutually exclusive with --dry-run, "
+            "--check, and --interactive.",
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     if check and dry_run:
@@ -392,6 +418,29 @@ def scan_db(
             provider_name=llm_provider_name,
         )
         workflow.dry_run(full=full)
+        return
+
+    if landscape:
+        # Deterministic path: never construct the LLM client unless
+        # --landscape-hints was requested (the Slice 3 dry-run pattern).
+        writer, out_name, writer_params = None, None, None
+        if output_profile:
+            writer, out_name, writer_params = cfg_manager.get_writer(
+                output_profile
+            )
+        llm_client = None
+        if landscape_hints:
+            llm_client, _ = cfg_manager.get_llm_client(llm_profile)
+        workflow = DbWorkflow(
+            db_connector=db_connector,
+            llm_client=llm_client,
+            writer=writer,
+            db_profile_name=db_name,
+            output_profile_name=out_name,
+            writer_params=writer_params,
+            provider_name=llm_provider_name,
+        )
+        workflow.landscape(hints=landscape_hints)
         return
 
     llm_client, _ = cfg_manager.get_llm_client(llm_profile)

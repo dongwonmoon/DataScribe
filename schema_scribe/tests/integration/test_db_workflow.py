@@ -1310,3 +1310,200 @@ def test_db_command_interactive_writes_reviewed_catalog(monkeypatch, tmp_path):
         written["catalog"]["tables"][0]["columns"][0]["description"]
         == "CLI EDIT"
     )
+
+
+# --- Slice 8.2: landscape command path ---
+
+
+def test_landscape_prints_markdown_without_llm(capsys, mock_db_connector):
+    """
+    The deterministic landscape path renders and prints without any LLM
+    client (the Slice 3 pattern: llm_client=None).
+    """
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=None,
+        writer=None,
+        db_profile_name="d",
+    )
+    wf.landscape()
+    out = capsys.readouterr().out
+    assert "## Scale" in out
+    assert "## Clusters" in out
+    assert "## Core tables" in out
+    assert "## Relationship map" in out
+    assert "`orders`" in out
+
+
+def test_landscape_hints_disclose_then_call_llm(caplog, mock_db_connector):
+    """
+    The hints path discloses the payload and provider before the first
+    transmission (Slice 3 rule), then calls the LLM once per cluster and
+    once per core table.
+    """
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "a hint"
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=llm,
+        writer=None,
+        db_profile_name="d",
+        provider_name="openai",
+    )
+    wf.landscape(hints=True)
+
+    # mock fixture: 3 tables, no conventions -> 1 'other' cluster + 3 core tables
+    assert llm.get_description.call_count == 4
+    assert (
+        "Sending 1 cluster hints and 3 core-table hints to provider 'openai'"
+        in caplog.text
+    )
+
+
+def test_landscape_hints_without_llm_client_raises(mock_db_connector):
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=None,
+        writer=None,
+        db_profile_name="d",
+    )
+    with pytest.raises(ValueError):
+        wf.landscape(hints=True)
+
+
+def test_landscape_writes_to_output_file(tmp_path, mock_db_connector):
+    output = tmp_path / "landscape.md"
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=None,
+        writer=MarkdownWriter(),
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    wf.landscape()
+    assert output.exists()
+    assert "## Core tables" in output.read_text()
+
+
+def test_landscape_rejects_writer_without_landscape_path(mock_db_connector):
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=None,
+        writer=MagicMock(spec=BaseWriter),
+        db_profile_name="d",
+    )
+    with pytest.raises(ValueError):
+        wf.landscape()
+
+
+def test_db_command_landscape_hints_requires_landscape():
+    """
+    --landscape-hints without --landscape is rejected before any
+    configuration work happens.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    result = CliRunner().invoke(app, ["db", "--landscape-hints"])
+    assert result.exit_code == 1
+    assert "--landscape-hints requires --landscape" in result.output
+
+
+def test_db_command_landscape_exclusive_with_other_modes():
+    """
+    --landscape is mutually exclusive with --dry-run and --check, rejected
+    before any configuration work happens.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    for other in ("--dry-run", "--check", "--interactive"):
+        result = CliRunner().invoke(app, ["db", "--landscape", other])
+        assert result.exit_code == 1
+        assert "--landscape is mutually exclusive" in result.output
+
+
+def test_db_command_landscape_never_constructs_llm_client(monkeypatch):
+    """
+    Plain --landscape must not construct the LLM client (Slice 3 pattern):
+    a ConfigManager whose get_llm_client raises would blow up the run if
+    the client were ever built.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_llm_provider_name(self, cli_profile):
+            return "openai"
+
+        def get_db_connector(self, cli_profile):
+            connector = MagicMock(spec=BaseConnector)
+            connector.get_tables.return_value = ["users", "orders"]
+            connector.get_columns.return_value = [{"name": "id", "type": "INTEGER"}]
+            connector.get_foreign_keys.return_value = [
+                {
+                    "source_table": "orders",
+                    "source_column": "user_id",
+                    "target_table": "users",
+                    "target_column": "id",
+                }
+            ]
+            connector.close.return_value = None
+            return connector, "d"
+
+        def get_llm_client(self, cli_profile):
+            raise AssertionError(
+                "LLM client must not be constructed for plain --landscape"
+            )
+
+        def get_writer(self, cli_profile):
+            return None, None, {}
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    result = CliRunner().invoke(app, ["db", "--landscape", "--config", "fake.yaml"])
+    assert result.exit_code == 0
+    assert "## Clusters" in result.output
+    assert "## Core tables" in result.output
+
+
+def test_db_command_landscape_hints_uses_llm_client(monkeypatch):
+    """--landscape --landscape-hints discloses, calls the LLM, and renders the hints."""
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_llm_provider_name(self, cli_profile):
+            return "openai"
+
+        def get_db_connector(self, cli_profile):
+            connector = MagicMock(spec=BaseConnector)
+            connector.get_tables.return_value = ["users"]
+            connector.get_columns.return_value = [{"name": "id", "type": "INTEGER"}]
+            connector.get_foreign_keys.return_value = []
+            connector.close.return_value = None
+            return connector, "d"
+
+        def get_llm_client(self, cli_profile):
+            llm = MagicMock(spec=BaseLLMClient)
+            llm.get_description.return_value = "master records hint"
+            return llm, "test_llm"
+
+        def get_writer(self, cli_profile):
+            return None, None, {}
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    result = CliRunner().invoke(
+        app, ["db", "--landscape", "--landscape-hints", "--config", "fake.yaml"]
+    )
+    assert result.exit_code == 0
+    assert "**Hint:** master records hint" in result.output
