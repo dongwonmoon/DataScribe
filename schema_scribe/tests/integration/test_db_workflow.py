@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from schema_scribe.workflows.db_workflow import DbWorkflow
 from schema_scribe.components.writers import MarkdownWriter
-from schema_scribe.core.exceptions import LLMClientError
+from schema_scribe.core.exceptions import ConfigError, LLMClientError
 from schema_scribe.core.interfaces import (
     BaseConnector,
     BaseLLMClient,
@@ -1506,4 +1506,222 @@ def test_db_command_landscape_hints_uses_llm_client(monkeypatch):
         app, ["db", "--landscape", "--landscape-hints", "--config", "fake.yaml"]
     )
     assert result.exit_code == 0
-    assert "**Hint:** master records hint" in result.output
+    assert (
+        "**Hint (AI-generated draft — unverified):** master records hint"
+        in result.output
+    )
+
+
+def test_landscape_hints_with_unsupported_writer_never_calls_llm(mock_db_connector):
+    """
+    --landscape --landscape-hints with a writer that has no landscape path
+    must fail BEFORE any hint is transmitted: the writer's landscape
+    support is validated before _landscape_hints runs (Slice 8 final
+    review finding 1).
+    """
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "a hint"
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=llm,
+        writer=MagicMock(spec=BaseWriter),
+        db_profile_name="d",
+        provider_name="openai",
+    )
+    with pytest.raises(ValueError):
+        wf.landscape(hints=True)
+    llm.get_description.assert_not_called()
+    mock_db_connector.close.assert_called_once()
+
+
+def test_landscape_hints_missing_output_filename_never_calls_llm(mock_db_connector):
+    """
+    A Markdown output profile without output_filename is rejected before
+    any hint is transmitted: table names never cross the wire when the
+    write would fail anyway (Slice 8 final review finding 1).
+    """
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "a hint"
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=llm,
+        writer=MarkdownWriter(),
+        db_profile_name="d",
+        writer_params={},
+        provider_name="openai",
+    )
+    with pytest.raises(ConfigError):
+        wf.landscape(hints=True)
+    llm.get_description.assert_not_called()
+    mock_db_connector.close.assert_called_once()
+
+
+def test_db_command_landscape_hints_unsupported_writer_zero_llm_calls(monkeypatch):
+    """
+    `db --landscape --landscape-hints` with a JSON (non-Markdown) output
+    profile exits 1 and never calls the LLM: writer validation precedes
+    hint transmission (Slice 8 final review finding 1).
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+    from schema_scribe.components.writers import JsonWriter
+
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "a hint"
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_llm_provider_name(self, cli_profile):
+            return "openai"
+
+        def get_db_connector(self, cli_profile):
+            connector = MagicMock(spec=BaseConnector)
+            connector.get_tables.return_value = ["users"]
+            connector.get_columns.return_value = [{"name": "id", "type": "INTEGER"}]
+            connector.get_foreign_keys.return_value = []
+            connector.close.return_value = None
+            return connector, "d"
+
+        def get_llm_client(self, cli_profile):
+            return llm, "test_llm"
+
+        def get_writer(self, cli_profile):
+            return JsonWriter(), "json_out", {"output_filename": "catalog.json"}
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    result = CliRunner().invoke(
+        app,
+        [
+            "db",
+            "--landscape",
+            "--landscape-hints",
+            "--output",
+            "json_out",
+            "--config",
+            "fake.yaml",
+        ],
+    )
+    assert result.exit_code == 1
+    assert llm.get_description.call_count == 0
+
+
+def test_db_command_landscape_bad_writer_profile_never_opens_connector(monkeypatch):
+    """
+    A bad output profile in the landscape path must fail BEFORE the DB
+    connector is opened: the writer is resolved first, so no open handle
+    is abandoned by the construction failure (Slice 8 final review
+    finding 3).
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    order = []
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_llm_provider_name(self, cli_profile):
+            order.append("provider")
+            return "openai"
+
+        def get_writer(self, cli_profile):
+            order.append("writer")
+            raise typer.Exit(1)
+
+        def get_db_connector(self, cli_profile):
+            order.append("connector")
+            raise AssertionError("connector must not be opened")
+
+        def get_llm_client(self, cli_profile):
+            raise AssertionError("LLM client must not be constructed")
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    result = CliRunner().invoke(
+        app,
+        ["db", "--landscape", "--output", "bad_out", "--config", "fake.yaml"],
+    )
+    assert result.exit_code == 1
+    assert order == ["provider", "writer"]
+
+
+def test_db_command_landscape_failing_llm_client_never_opens_connector(monkeypatch):
+    """
+    A failing LLM client construction in the hints path must fail BEFORE
+    the DB connector is opened (Slice 8 final review finding 3).
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    order = []
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_llm_provider_name(self, cli_profile):
+            order.append("provider")
+            return "openai"
+
+        def get_writer(self, cli_profile):
+            order.append("writer")
+            return None, None, {}
+
+        def get_llm_client(self, cli_profile):
+            order.append("llm")
+            raise LLMClientError("model pull failed")
+
+        def get_db_connector(self, cli_profile):
+            order.append("connector")
+            raise AssertionError("connector must not be opened")
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    result = CliRunner().invoke(
+        app,
+        ["db", "--landscape", "--landscape-hints", "--config", "fake.yaml"],
+    )
+    assert result.exit_code == 1
+    assert order == ["provider", "llm"]
+
+
+def test_db_command_run_failing_llm_client_never_opens_connector(monkeypatch):
+    """
+    The regular run path constructs the LLM client and writer BEFORE
+    opening the DB connector: a construction failure must not abandon an
+    open handle (Slice 8 final review finding 3, shared path).
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    order = []
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_llm_provider_name(self, cli_profile):
+            order.append("provider")
+            return "openai"
+
+        def get_llm_client(self, cli_profile):
+            order.append("llm")
+            raise LLMClientError("model pull failed")
+
+        def get_writer(self, cli_profile):
+            order.append("writer")
+            return None, None, {}
+
+        def get_db_connector(self, cli_profile):
+            order.append("connector")
+            raise AssertionError("connector must not be opened")
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    result = CliRunner().invoke(app, ["db", "--config", "fake.yaml"])
+    assert result.exit_code == 1
+    assert order == ["provider", "llm"]

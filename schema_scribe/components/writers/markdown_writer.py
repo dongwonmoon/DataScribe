@@ -188,7 +188,9 @@ class MarkdownWriter(BaseWriter):
         "how big is this database, where do I start?". It renders the four
         ``build_landscape`` sections — Scale, Clusters, Core tables, and
         Relationship map — and optionally inlines LLM name-decoding hints
-        (``hints={"clusters": {...}, "core_tables": {...}}``).
+        (``hints={"clusters": {...}, "core_tables": {...}}``), each
+        explicitly labeled as an unverified AI-generated draft (PRODUCT.md:
+        generated descriptions remain drafts until a human accepts them).
 
         Args:
             landscape: A dict from ``build_landscape``.
@@ -236,7 +238,10 @@ class MarkdownWriter(BaseWriter):
                 lines.append(f"### `{name}` ({len(members)} tables)\n\n")
                 hint = cluster_hints.get(name)
                 if hint:
-                    lines.append(f"> **Hint:** {hint}\n\n")
+                    lines.append(
+                        f"> **Hint (AI-generated draft — unverified):** "
+                        f"{hint}\n\n"
+                    )
                 for member in members:
                     lines.append(f"- `{member}`\n")
                 lines.append("\n")
@@ -254,7 +259,7 @@ class MarkdownWriter(BaseWriter):
                 )
             core_hints = hints.get("core_tables", {})
             if core_hints:
-                lines.append("\nHints:\n\n")
+                lines.append("\n**Hints (AI-generated drafts — unverified):**\n\n")
                 for entry in core:
                     hint = core_hints.get(entry["table"])
                     if hint:

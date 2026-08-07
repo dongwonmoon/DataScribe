@@ -20,6 +20,7 @@ from schema_scribe.core.interfaces import (
     BaseLLMClient,
     BaseWriter,
 )
+from schema_scribe.core.exceptions import ConfigError
 from schema_scribe.services.catalog_generator import CatalogGenerator
 from schema_scribe.services.landscape import build_landscape
 from schema_scribe.services.schema_state import SchemaState
@@ -300,8 +301,30 @@ class DbWorkflow:
             ValueError: If ``hints=True`` without an LLM client, or the
                 injected writer has no landscape path (the landscape is a
                 Markdown artifact; only MarkdownWriter supports it).
+            ConfigError: If the injected writer's output profile lacks
+                ``output_filename`` (a file writer cannot produce the
+                report without a target path).
         """
         try:
+            # Validate the writer's landscape path BEFORE any hint is
+            # transmitted: a writer that cannot render the landscape (or a
+            # profile missing its output filename) would otherwise receive
+            # table names over the wire, then fail after up to 20 LLM calls
+            # (Slice 8 final review finding 1). Fail fast instead.
+            write_landscape = None
+            if self.writer is not None:
+                write_landscape = getattr(self.writer, "write_landscape", None)
+                if not callable(write_landscape):
+                    raise ValueError(
+                        "Landscape output requires a MarkdownWriter output "
+                        f"profile (got {type(self.writer).__name__})."
+                    )
+                if not self.writer_params.get("output_filename"):
+                    raise ConfigError(
+                        "Landscape output requires 'output_filename' in the "
+                        "output profile parameters."
+                    )
+
             tables = self.db_connector.get_tables()
             columns_by_table = {
                 table: self.db_connector.get_columns(table) for table in tables
@@ -311,12 +334,6 @@ class DbWorkflow:
             hint_map = self._landscape_hints(landscape) if hints else None
 
             if self.writer is not None:
-                write_landscape = getattr(self.writer, "write_landscape", None)
-                if not callable(write_landscape):
-                    raise ValueError(
-                        "Landscape output requires a MarkdownWriter output "
-                        f"profile (got {type(self.writer).__name__})."
-                    )
                 write_landscape(
                     landscape,
                     hints=hint_map,

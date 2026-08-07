@@ -182,8 +182,32 @@ def test_landscape_render_includes_hints():
         _synthetic_landscape(), hints=hints, db_profile_name="test_db"
     )
 
-    assert "> **Hint:** Dimension tables." in out
+    assert (
+        "> **Hint (AI-generated draft — unverified):** Dimension tables." in out
+    )
+    assert "**Hints (AI-generated drafts — unverified):**" in out
     assert "`orders` — Order header records." in out
+
+
+def test_landscape_hints_labeled_as_unverified_ai_drafts():
+    """
+    Both hint forms must carry explicit draft/unverified framing: hints
+    are AI-generated drafts until a human accepts them (PRODUCT.md trust
+    boundary), never verified business facts.
+    """
+    hints = {
+        "clusters": {"dim": "Dimension tables."},
+        "core_tables": {"orders": "Order header records."},
+    }
+    out = MarkdownWriter().render_landscape(
+        _synthetic_landscape(), hints=hints, db_profile_name="test_db"
+    )
+
+    assert "AI-generated draft" in out
+    assert "unverified" in out
+    assert "> **Hint (AI-generated draft — unverified):** Dimension tables." in out
+    assert "**Hints (AI-generated drafts — unverified):**" in out
+    assert "- `orders` — Order header records." in out
 
 
 def test_landscape_render_without_hints_omits_hint_sections():
@@ -191,6 +215,8 @@ def test_landscape_render_without_hints_omits_hint_sections():
     out = MarkdownWriter().render_landscape(_synthetic_landscape(), db_profile_name="t")
     assert "**Hint:**" not in out
     assert "Hints:" not in out
+    assert "AI-generated draft" not in out
+    assert "unverified" not in out
 
 
 def test_landscape_render_empty_database():

@@ -405,11 +405,11 @@ def scan_db(
     # get_db_connector() opens a DB handle. If provider resolution fails
     # (typer.Exit), no connection was opened and left to be abandoned.
     llm_provider_name = cfg_manager.get_llm_provider_name(llm_profile)
-    db_connector, db_name = cfg_manager.get_db_connector(db_profile)
 
     if dry_run:
         # Never construct the LLM client: OllamaClient.__init__ pulls a model,
         # which is provider-side work a "dry" run must not perform.
+        db_connector, db_name = cfg_manager.get_db_connector(db_profile)
         workflow = DbWorkflow(
             db_connector=db_connector,
             llm_client=None,
@@ -423,6 +423,10 @@ def scan_db(
     if landscape:
         # Deterministic path: never construct the LLM client unless
         # --landscape-hints was requested (the Slice 3 dry-run pattern).
+        # The writer and (when hints are requested) the LLM client are
+        # resolved BEFORE the DB handle is opened: a construction failure
+        # must not abandon an open connection whose workflow finally
+        # cleanup never runs (Slice 8 final review finding 3).
         writer, out_name, writer_params = None, None, None
         if output_profile:
             writer, out_name, writer_params = cfg_manager.get_writer(
@@ -431,6 +435,7 @@ def scan_db(
         llm_client = None
         if landscape_hints:
             llm_client, _ = cfg_manager.get_llm_client(llm_profile)
+        db_connector, db_name = cfg_manager.get_db_connector(db_profile)
         workflow = DbWorkflow(
             db_connector=db_connector,
             llm_client=llm_client,
@@ -443,12 +448,16 @@ def scan_db(
         workflow.landscape(hints=landscape_hints)
         return
 
+    # Regular, check, and interactive paths: construct the LLM client and
+    # writer before opening the DB handle — same abandoned-connection rule
+    # as the landscape path (Slice 8 final review finding 3).
     llm_client, _ = cfg_manager.get_llm_client(llm_profile)
+    writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+    db_connector, db_name = cfg_manager.get_db_connector(db_profile)
 
     if check:
         # The writer is constructed so check() can render a diff of the new
         # output against the existing file; check() never calls write().
-        writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
         workflow = DbWorkflow(
             db_connector=db_connector,
             llm_client=llm_client,
@@ -465,7 +474,6 @@ def scan_db(
         return
 
     if interactive:
-        writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
         workflow = DbWorkflow(
             db_connector=db_connector,
             llm_client=llm_client,
@@ -478,10 +486,7 @@ def scan_db(
         workflow.run_interactive()
         return
 
-    writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
-
     # 3. 'Inject' instances into the workflow
-    # Now DbWorkflow doesn't need to know about config_path or profile names.
     workflow = DbWorkflow(
         db_connector=db_connector,
         llm_client=llm_client,
