@@ -115,6 +115,11 @@ class GoogleGenAIClient(BaseLLMClient):
                     "thinking tokens)."
                 )
             description = response.text.strip()
+            if not description:
+                raise LLMClientError(
+                    "Google GenAI returned an empty description for this "
+                    "request."
+                )
             logger.info("Response received from Google GenAI.")
             return description
         except Exception as e:

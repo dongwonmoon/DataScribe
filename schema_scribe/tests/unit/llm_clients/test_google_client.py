@@ -167,3 +167,52 @@ def test_google_client_429_exhausted_raises(mock_sleep, mock_genai, mocker):
         client.get_description("test prompt", 100)
     assert mock_client.models.generate_content.call_count == 4  # 1 + 3 retries
     assert mock_sleep.call_count == 3
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+def test_google_client_whitespace_response_raises(mock_genai, mocker):
+    """A whitespace-only response must raise LLMClientError, not return ''."""
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    mock_client = MagicMock()
+    empty = MagicMock()
+    empty.text = "   "
+    mock_client.models.generate_content.return_value = empty
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    with pytest.raises(LLMClientError, match="empty description"):
+        client.get_description("test prompt", 100)
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+@patch("schema_scribe.components.llm_clients.google_client.time.sleep")
+def test_google_client_429_then_thought_then_success(mock_sleep, mock_genai, mocker):
+    """Combined path: 429 retry, then thought-only (doubled budget), then success."""
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    mock_client = MagicMock()
+    thought_only = MagicMock()
+    thought_only.text = None
+    ok = MagicMock()
+    ok.text = "final answer"
+    mock_client.models.generate_content.side_effect = [
+        _QuotaError("Please retry in 5s."),
+        thought_only,
+        ok,
+    ]
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    description = client.get_description("test prompt", 100)
+
+    assert description == "final answer"
+    budgets = [c.kwargs["config"]["max_output_tokens"] for c in mock_client.models.generate_content.call_args_list]
+    # 429 retry stays at 100; the thought-only response surfaces from the
+    # quota loop's second attempt, then the doubled-budget retry uses 200.
+    assert budgets == [100, 100, 200]
+    mock_sleep.assert_called_once_with(5.0)
