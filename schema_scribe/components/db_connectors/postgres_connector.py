@@ -64,6 +64,7 @@ class PostgresConnector(SqlBaseConnector):
                 user=db_params.get("user"),
                 password=db_params.get("password"),
                 dbname=self.dbname,
+                options="-c default_transaction_read_only=on",
             )
             self.cursor = self.connection.cursor()
             logger.info("Successfully connected to PostgreSQL database.")

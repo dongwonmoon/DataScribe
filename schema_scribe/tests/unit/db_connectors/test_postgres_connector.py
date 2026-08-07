@@ -29,8 +29,17 @@ def test_postgres_connector_connect(mock_psycopg2):
         user="admin",
         password="pw",
         dbname="testdb",
+        options="-c default_transaction_read_only=on",
     )
     assert connector.schema_name == "public"
+
+
+def test_connect_enforces_read_only(mocker):
+    mock_connect = mocker.patch("psycopg2.connect")
+    connector = PostgresConnector()
+    connector.connect({"host": "h", "user": "u", "password": "p", "dbname": "d"})
+    kwargs = mock_connect.call_args.kwargs
+    assert kwargs["options"] == "-c default_transaction_read_only=on"
 
 
 @patch(
