@@ -145,7 +145,11 @@ class DbWorkflow:
         try:
             # 1. Call the pure business logic (service)
             logger.info(f"Generating data catalog for: {self.db_profile_name}")
-            catalog_gen = CatalogGenerator(self.db_connector, self.llm_client)
+            catalog_gen = CatalogGenerator(
+                self.db_connector,
+                self.llm_client,
+                provider_name=self.provider_name,
+            )
             catalog = catalog_gen.generate_catalog(self.db_profile_name)
             return catalog
         finally:

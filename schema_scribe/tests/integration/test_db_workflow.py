@@ -6,6 +6,7 @@ ensuring that it correctly uses the components (connector, generator, writer)
 to produce a data catalog from a database.
 """
 
+import logging
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,7 @@ from schema_scribe.core.interfaces import (
     BaseLLMClient,
     BaseWriter,
 )
+from schema_scribe.utils.logger import get_logger
 
 
 @pytest.fixture
@@ -373,3 +375,82 @@ def test_db_command_full_without_dry_run_errors():
     result = CliRunner().invoke(app, ["db", "--full"])
     assert result.exit_code == 1
     assert "--full requires --dry-run" in result.output
+
+
+def test_run_discloses_payload_before_first_llm_call(caplog):
+    """
+    The real run must log what will be sent to the LLM BEFORE the first
+    get_description call: summary/description counts, provider name, and
+    the collected metadata counts (tables, columns, views).
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = ["t"]
+    connector.get_columns.return_value = [
+        {
+            "name": "c",
+            "type": "INTEGER",
+            "description": "",
+            "is_nullable": True,
+            "is_pk": False,
+        }
+    ]
+    connector.get_views.return_value = [{"name": "v", "definition": "SELECT * FROM t"}]
+    connector.get_foreign_keys.return_value = []
+    connector.get_column_profile.return_value = {
+        "total_count": 0,
+        "null_count": 0,
+        "distinct_count": 0,
+        "is_unique": True,
+    }
+    mock_llm_client = MagicMock(spec=BaseLLMClient)
+
+    def mark_llm_call(*args, **kwargs):
+        get_logger("schema_scribe.services.catalog_generator").info(
+            "LLM get_description called"
+        )
+        return "This is an AI-generated description."
+
+    mock_llm_client.get_description.side_effect = mark_llm_call
+
+    wf = DbWorkflow(
+        connector,
+        mock_llm_client,
+        writer=None,
+        db_profile_name="d",
+        provider_name="openai",
+    )
+    with caplog.at_level(logging.INFO):
+        wf.run()
+
+    assert (
+        "Sending 1 table summaries and 1 column descriptions to provider "
+        "'openai'. Metadata: tables=1, columns=1, views=1."
+    ) in caplog.text
+
+    messages = [r.getMessage() for r in caplog.records]
+    disclosure_index = next(
+        i for i, m in enumerate(messages) if "table summaries" in m
+    )
+    first_llm_index = next(
+        i for i, m in enumerate(messages) if m == "LLM get_description called"
+    )
+    assert disclosure_index < first_llm_index
+
+
+def test_run_disclosure_defaults_provider_to_unknown(caplog):
+    """
+    When no provider name is available, the disclosure logs 'unknown'
+    instead of failing or guessing.
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = []
+    connector.get_views.return_value = []
+    connector.get_foreign_keys.return_value = []
+    mock_llm_client = MagicMock(spec=BaseLLMClient)
+
+    wf = DbWorkflow(connector, mock_llm_client, writer=None, db_profile_name="d")
+    with caplog.at_level(logging.INFO):
+        wf.run()
+
+    assert "to provider 'unknown'." in caplog.text
+    mock_llm_client.get_description.assert_not_called()

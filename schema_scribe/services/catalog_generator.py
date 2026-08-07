@@ -7,7 +7,7 @@ descriptive content, effectively turning technical details into valuable
 business-level documentation.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from schema_scribe.core.interfaces import BaseConnector, BaseLLMClient
 from schema_scribe.prompts import (
@@ -35,16 +35,24 @@ class CatalogGenerator:
     5.  Assembles the final, enriched catalog dictionary.
     """
 
-    def __init__(self, db_connector: BaseConnector, llm_client: BaseLLMClient):
+    def __init__(
+        self,
+        db_connector: BaseConnector,
+        llm_client: BaseLLMClient,
+        provider_name: Optional[str] = None,
+    ):
         """
         Initializes the CatalogGenerator.
 
         Args:
             db_connector: An initialized connector for the target database.
             llm_client: An initialized client for the desired LLM provider.
+            provider_name: The name of the LLM provider, disclosed in the
+                run-start transmission log line.
         """
         self.db_connector = db_connector
         self.llm_client = llm_client
+        self.provider_name = provider_name
 
     def _format_profile_stats(self, profile_stats: Dict[str, Any]) -> str:
         """
@@ -82,14 +90,18 @@ class CatalogGenerator:
         """
         Generates a complete, enriched data catalog for the connected database.
 
-        This method executes the main logic in three stages:
-        1.  **Process Tables**: Fetches all tables, generates an AI summary for
-            each, and then iterates through their columns. For each column, it
-            gathers profile stats and generates an AI description.
-        2.  **Process Views**: Fetches all database views and generates an AI
-            summary for each based on its name and SQL definition.
-        3.  **Process Foreign Keys**: Fetches all foreign key relationships to
-            provide lineage information.
+        This method executes the main logic in these stages:
+        1.  **Collect Metadata**: Fetches all tables, their columns, and all
+            views up front, with no LLM calls.
+        2.  **Disclose**: Logs the payload counts and provider before the
+            first LLM call.
+        3.  **Process Tables**: For each table, generates an AI summary and
+            then, per column, gathers profile stats and generates an AI
+            description.
+        4.  **Process Views**: Generates an AI summary for each view based
+            on its name and SQL definition.
+        5.  **Process Foreign Keys**: Fetches all foreign key relationships
+            to provide lineage information.
 
         Args:
             db_profile_name: The name of the database profile being scanned,
@@ -125,13 +137,31 @@ class CatalogGenerator:
         catalog_data = {"tables": [], "views": [], "foreign_keys": []}
         logger.info(f"Fetching tables for database profile: {db_profile_name}")
 
-        # --- 1. Process Tables and Columns ---
+        # --- 1. Collect all metadata (no LLM calls yet) ---
         tables = self.db_connector.get_tables()
         logger.info(f"Found {len(tables)} tables: {tables}")
 
+        tables_with_columns: List[tuple] = []
+        total_columns = 0
         for table_name in tables:
-            logger.info(f"Processing table: {table_name}")
             columns = self.db_connector.get_columns(table_name)
+            tables_with_columns.append((table_name, columns))
+            total_columns += len(columns)
+
+        logger.info("Fetching views...")
+        views = self.db_connector.get_views()
+
+        # --- 2. Disclose the payload before the first LLM call ---
+        provider = self.provider_name or "unknown"
+        logger.info(
+            f"Sending {len(tables)} table summaries and {total_columns} "
+            f"column descriptions to provider '{provider}'. Metadata: "
+            f"tables={len(tables)}, columns={total_columns}, views={len(views)}."
+        )
+
+        # --- 3. Process Tables and Columns ---
+        for table_name, columns in tables_with_columns:
+            logger.info(f"Processing table: {table_name}")
             enriched_columns = []
 
             logger.info(f"  - Generating summary for table: {table_name}")
@@ -191,9 +221,7 @@ class CatalogGenerator:
             )
             logger.info(f"Finished processing table: {table_name}")
 
-        # --- 2. Process Views ---
-        logger.info("Fetching views...")
-        views = self.db_connector.get_views()
+        # --- 4. Process Views ---
         enriched_views = []
 
         for view in views:
@@ -216,7 +244,7 @@ class CatalogGenerator:
             )
         catalog_data["views"] = enriched_views
 
-        # --- 3. Process Foreign Keys ---
+        # --- 5. Process Foreign Keys ---
         logger.info("Fetching foreign keys...")
         foreign_keys = self.db_connector.get_foreign_keys()
         catalog_data["foreign_keys"] = foreign_keys
