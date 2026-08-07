@@ -12,6 +12,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from schema_scribe.workflows.db_workflow import DbWorkflow
+from schema_scribe.components.writers import MarkdownWriter
+from schema_scribe.core.exceptions import LLMClientError
 from schema_scribe.core.interfaces import (
     BaseConnector,
     BaseLLMClient,
@@ -454,3 +456,48 @@ def test_run_disclosure_defaults_provider_to_unknown(caplog):
 
     assert "to provider 'unknown'." in caplog.text
     mock_llm_client.get_description.assert_not_called()
+
+
+def test_generation_failure_preserves_output(tmp_path):
+    """
+    Regression lock: an LLM failure mid-run must leave the previous output
+    file untouched — the writer never runs because generation completes
+    before the write phase (db_workflow.py run() ordering).
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = ["t"]
+    connector.get_columns.return_value = [
+        {
+            "name": "c",
+            "type": "INTEGER",
+            "description": "",
+            "is_nullable": True,
+            "is_pk": False,
+        }
+    ]
+    connector.get_views.return_value = []
+    connector.get_foreign_keys.return_value = []
+    connector.get_column_profile.return_value = {
+        "total_count": 0,
+        "null_count": 0,
+        "distinct_count": 0,
+        "is_unique": True,
+    }
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.side_effect = LLMClientError("boom")
+
+    target = tmp_path / "catalog.md"
+    target.write_text("PREVIOUS")
+
+    writer = MarkdownWriter()
+    wf = DbWorkflow(
+        connector,
+        llm,
+        writer,
+        writer_params={"output_filename": str(target)},
+    )
+    with pytest.raises(LLMClientError):
+        wf.run()
+
+    assert target.read_text() == "PREVIOUS"
+    connector.close.assert_called_once()
