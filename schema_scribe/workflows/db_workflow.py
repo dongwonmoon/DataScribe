@@ -11,6 +11,9 @@ details of configuration management, which is handled by the `ConfigManager`.
 """
 
 from typing import Optional, Dict, Any
+import difflib
+import os
+import tempfile
 import typer
 from schema_scribe.core.interfaces import (
     BaseConnector,
@@ -157,6 +160,115 @@ class DbWorkflow:
             # Ensure the connection is closed even if only generating data
             logger.info(f"Closing DB connection for {self.db_profile_name}...")
             self.db_connector.close()
+
+    def render(self) -> str:
+        """
+        Renders the catalog to the configured writer's output string
+        without writing anything to disk or external services.
+
+        File-based writers (Markdown/JSON) expose an in-memory `render()`
+        method (Task 6.1 extraction), which is used directly. Writers that
+        only expose `write()` fall back to writing into a temporary file
+        (with `output_filename` redirected) and reading it back.
+        """
+        return self._render_catalog(self.generate_catalog())
+
+    def _render_catalog(self, catalog: Dict[str, Any]) -> str:
+        """
+        Renders an already-generated catalog to the configured writer's
+        output string without writing to the real output target.
+        """
+        if not self.writer:
+            raise ValueError(
+                "Cannot render the catalog without a writer "
+                "(--output profile)."
+            )
+        render_fn = getattr(self.writer, "render", None)
+        if callable(render_fn):
+            return render_fn(catalog, db_profile_name=self.db_profile_name)
+        writer_kwargs = {
+            "db_profile_name": self.db_profile_name,
+            "db_connector": self.db_connector,
+            **self.writer_params,
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_out = os.path.join(tmp_dir, "render.tmp")
+            self.writer.write(catalog, **writer_kwargs, output_filename=tmp_out)
+            with open(tmp_out, "r", encoding="utf-8") as f:
+                return f.read()
+
+    def check(self) -> bool:
+        """
+        Compares a fresh generation against the persisted schema state
+        sidecar and the existing output file; returns True iff anything
+        would change. Never writes to the output target.
+
+        Semantics (defined by Slice 6.1):
+        - No sidecar and no existing output file → False ("no existing
+          documentation to compare").
+        - Sidecar present → SchemaState.classify drives the result; one
+          status line per table (unchanged/added/removed/
+          structurally-changed) is printed.
+        - Output file present → a unified diff of the new render vs the
+          existing content is also printed. An existing output file
+          without a sidecar fails closed: every table classifies as added.
+
+        The DB connection is closed by generate_catalog().
+        """
+        catalog = self.generate_catalog()
+        curr = SchemaState.snapshot(catalog)
+        output_filename = self.writer_params.get("output_filename")
+        sidecar_path = (
+            f"{output_filename}.schema-state.json" if output_filename else None
+        )
+        prev = SchemaState.load(sidecar_path) if sidecar_path else None
+        output_exists = bool(output_filename) and os.path.exists(
+            output_filename
+        )
+
+        if prev is None and not output_exists:
+            print("no existing documentation to compare")
+            return False
+
+        result = SchemaState.classify(prev, curr)
+        unchanged = sorted(
+            set(curr["tables"])
+            - set(result["added"])
+            - set(result["structurally_changed"])
+        )
+
+        print("Schema state check:")
+        for name in unchanged:
+            print(f"  [unchanged]            {name}")
+        for name in result["added"]:
+            print(f"  [added]                {name}")
+        for name in result["removed"]:
+            print(f"  [removed]              {name}")
+        for name in result["structurally_changed"]:
+            print(f"  [structurally-changed] {name}")
+
+        changed = bool(
+            result["added"] or result["removed"] or result["structurally_changed"]
+        )
+
+        if output_exists:
+            try:
+                new_render = self._render_catalog(catalog)
+            except ValueError as e:
+                print(f"  (cannot render diff: {e})")
+            else:
+                with open(output_filename, "r", encoding="utf-8") as f:
+                    existing = f.read()
+                diff = difflib.unified_diff(
+                    existing.splitlines(),
+                    new_render.splitlines(),
+                    fromfile=str(output_filename),
+                    tofile="<new render>",
+                    lineterm="",
+                )
+                print("\n".join(diff))
+
+        return changed
 
     def run(self):
         """

@@ -20,6 +20,7 @@ from schema_scribe.core.interfaces import (
     BaseLLMClient,
     BaseWriter,
 )
+from schema_scribe.services.schema_state import SchemaState
 from schema_scribe.utils.logger import get_logger
 
 
@@ -645,3 +646,243 @@ def test_sidecar_write_failure_does_not_fail_run(
     mock_writer.write.assert_called_once()
     assert "Failed to save schema state sidecar" in caplog.text
     assert not (tmp_path / "db_catalog.md.schema-state.json").exists()
+
+
+def _check_connector():
+    """
+    Minimal connector mock for check() tests: one table 'users' with a
+    single PK column 'id', no views, no foreign keys.
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = ["users"]
+    connector.get_columns.return_value = [
+        {"name": "id", "type": "INTEGER", "is_pk": True}
+    ]
+    connector.get_views.return_value = []
+    connector.get_foreign_keys.return_value = []
+    connector.get_column_profile.return_value = {
+        "total_count": 0,
+        "null_count": 0,
+        "distinct_count": 0,
+        "is_unique": True,
+    }
+    connector.close.return_value = None
+    return connector
+
+
+def _check_llm():
+    """
+    Minimal LLM mock for check() tests: every description is a fixed draft.
+    """
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "draft"
+    return llm
+
+
+def test_check_no_sidecar_no_output_returns_false(capsys):
+    """
+    No sidecar and no existing output file → check() returns False and
+    prints 'no existing documentation to compare' (exit-0 path).
+    """
+    wf = DbWorkflow(
+        _check_connector(), _check_llm(), writer=None, db_profile_name="d"
+    )
+    assert wf.check() is False
+    assert "no existing documentation to compare" in capsys.readouterr().out
+    wf.db_connector.close.assert_called_once()
+
+
+def test_check_stale_sidecar_reports_added_table(capsys, tmp_path):
+    """
+    A stale sidecar (baseline with zero tables) classifies the fresh
+    generation's 'users' table as added → check() returns True and prints
+    a per-object status line.
+    """
+    output = tmp_path / "out.md"
+    SchemaState.save(
+        {"tables": {}, "views": [], "generated_at": "x"},
+        str(output) + ".schema-state.json",
+    )
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=None,
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is True
+    out = capsys.readouterr().out
+    assert "[added]                users" in out
+
+
+def test_check_unchanged_sidecar_returns_false(capsys, tmp_path):
+    """
+    A sidecar matching the fresh generation classifies 'users' as
+    unchanged → check() returns False.
+    """
+    output = tmp_path / "out.md"
+    SchemaState.save(
+        {
+            "tables": {
+                "users": {"columns": {"id": "INTEGER"}, "pk": ["id"], "fks": []}
+            },
+            "views": [],
+            "generated_at": "x",
+        },
+        str(output) + ".schema-state.json",
+    )
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=None,
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is False
+    out = capsys.readouterr().out
+    assert "[unchanged]            users" in out
+
+
+def test_check_prints_unified_diff_and_never_writes(tmp_path, capsys):
+    """
+    When the output file exists, check() prints a unified diff of the new
+    render vs the existing content and leaves the file untouched.
+    """
+    output = tmp_path / "out.md"
+    output.write_text("# OLD DOCUMENT\n", encoding="utf-8")
+    SchemaState.save(
+        {"tables": {}, "views": [], "generated_at": "x"},
+        str(output) + ".schema-state.json",
+    )
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=MarkdownWriter(),
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is True
+    out = capsys.readouterr().out
+    assert "# OLD DOCUMENT" in out  # existing content in the diff
+    assert "Data Catalog for d" in out  # new render in the diff
+    assert "+++ <new render>" in out
+    assert output.read_text(encoding="utf-8") == "# OLD DOCUMENT\n"
+
+
+def test_check_missing_sidecar_with_existing_output_fails_closed(tmp_path):
+    """
+    An existing output file without a sidecar has no baseline to prove
+    currency → every table classifies as added, check() returns True.
+    """
+    output = tmp_path / "out.md"
+    output.write_text("# OLD DOCUMENT\n", encoding="utf-8")
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=MarkdownWriter(),
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is True
+
+
+def test_db_command_check_and_dry_run_mutually_exclusive():
+    """
+    --check and --dry-run are mutually exclusive and rejected before any
+    configuration work happens.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    result = CliRunner().invoke(app, ["db", "--check", "--dry-run"])
+    assert result.exit_code == 1
+    assert "--check and --dry-run are mutually exclusive" in result.output
+
+
+def _check_cli_config_manager(output_path):
+    """
+    Builds a fake ConfigManager for CLI check tests: sqlite-shaped mocks
+    backed by the configured markdown output path.
+    """
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_db_connector(self, cli_profile):
+            connector = MagicMock(spec=BaseConnector)
+            connector.get_tables.return_value = ["users"]
+            connector.get_columns.return_value = [
+                {"name": "id", "type": "INTEGER", "is_pk": True}
+            ]
+            connector.get_views.return_value = []
+            connector.get_foreign_keys.return_value = []
+            connector.get_column_profile.return_value = {
+                "total_count": 0,
+                "null_count": 0,
+                "distinct_count": 0,
+                "is_unique": True,
+            }
+            connector.close.return_value = None
+            return connector, "d"
+
+        def get_llm_client(self, cli_profile):
+            return _check_llm(), "test_llm"
+
+        def get_writer(self, cli_profile):
+            return (
+                MarkdownWriter(),
+                "test_markdown_output",
+                {"output_filename": str(output_path)},
+            )
+
+    return FakeConfigManager
+
+
+def test_db_command_check_exits_1_when_schema_changed(monkeypatch, tmp_path):
+    """
+    `db --check` exits 1 when check() reports a change (stale sidecar).
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    output_path = tmp_path / "catalog.md"
+    SchemaState.save(
+        {"tables": {}, "views": [], "generated_at": "x"},
+        str(output_path) + ".schema-state.json",
+    )
+    monkeypatch.setattr(
+        "schema_scribe.app.ConfigManager",
+        _check_cli_config_manager(output_path),
+    )
+    result = CliRunner().invoke(app, ["db", "--check", "--config", "fake.yaml"])
+    assert result.exit_code == 1
+
+
+def test_db_command_check_exits_0_when_up_to_date(monkeypatch, tmp_path):
+    """
+    `db --check` exits 0 when the fresh generation matches the sidecar.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    output_path = tmp_path / "catalog.md"
+    SchemaState.save(
+        {
+            "tables": {
+                "users": {"columns": {"id": "INTEGER"}, "pk": ["id"], "fks": []}
+            },
+            "views": [],
+            "generated_at": "x",
+        },
+        str(output_path) + ".schema-state.json",
+    )
+    monkeypatch.setattr(
+        "schema_scribe.app.ConfigManager",
+        _check_cli_config_manager(output_path),
+    )
+    result = CliRunner().invoke(app, ["db", "--check", "--config", "fake.yaml"])
+    assert result.exit_code == 0

@@ -99,6 +99,84 @@ class MarkdownWriter(BaseWriter):
                 os.unlink(tmp_name)
             raise
 
+    def render(self, catalog_data: Dict[str, Any], **kwargs) -> str:
+        """
+        Builds the Markdown document string for a catalog without writing.
+
+        This is the pure, in-memory half of `write()`: the same line
+        composition `write()` uses, returned as a string so callers like
+        `DbWorkflow.check()` can diff a fresh render against the existing
+        output file without touching disk.
+
+        Args:
+            catalog_data: A dictionary containing the structured catalog data.
+            **kwargs: Must contain `db_profile_name`.
+
+        Raises:
+            ConfigError: If `db_profile_name` is not provided.
+        """
+        db_profile_name = kwargs.get("db_profile_name")
+        if not db_profile_name:
+            raise ConfigError(
+                "MarkdownWriter.render requires 'db_profile_name' in kwargs."
+            )
+
+        lines = []
+
+        # 1. Main Title
+        lines.append(f"# 📁 Data Catalog for {db_profile_name}\n")
+
+        # 2. ERD Section
+        lines.append("\n## 🚀 Entity Relationship Diagram (ERD)\n\n")
+        foreign_keys = catalog_data.get("foreign_keys", [])
+        mermaid_code = self._generate_erd_mermaid(foreign_keys)
+        lines.append(mermaid_code + "\n")
+
+        # 3. Views Section
+        lines.append("\n## 🔎 Views\n\n")
+        views = catalog_data.get("views", [])
+        if not views:
+            lines.append("No views found in this database.\n")
+        else:
+            for view in views:
+                lines.append(f"### 📄 View: `{view['name']}`\n\n")
+                lines.append("**AI-Generated Summary:**\n")
+                lines.append(
+                    f"> {view.get('ai_summary', '(No summary available)')}\n\n"
+                )
+                lines.append("**SQL Definition:**\n")
+                lines.append(
+                    f"```sql\n{view.get('definition', 'N/A')}\n```\n\n"
+                )
+
+        # 4. Tables Section
+        lines.append("\n## 🗂️ Tables\n\n")
+        tables = catalog_data.get("tables", [])
+        if not tables:
+            lines.append("No tables found in this database.\n")
+        else:
+            for table in tables:
+                lines.append(f"### 📄 Table: `{table['name']}`\n\n")
+                lines.append("**AI-Generated Summary:**\n")
+                lines.append(
+                    f"> {table.get('ai_summary', '(No summary available)')}\n\n"
+                )
+                lines.append(
+                    "| Column Name | Data Type | AI-Generated Description |\n"
+                )
+                lines.append("| :--- | :--- | :--- |\n")
+                for column in table.get("columns", []):
+                    name_cell = (
+                        f"🔑 `{column['name']}`"
+                        if column.get("is_pk", False)
+                        else f"`{column['name']}`"
+                    )
+                    lines.append(
+                        f"| {name_cell} | `{column['type']}` | {column['description']} |\n"
+                    )
+                lines.append("\n")
+        return "".join(lines)
+
     def write(self, catalog_data: Dict[str, List[Dict[str, Any]]], **kwargs):
         """
         Writes the catalog data to a Markdown file.
@@ -128,61 +206,8 @@ class MarkdownWriter(BaseWriter):
             logger.info(
                 f"Writing data catalog for '{db_profile_name}' to '{output_filename}'."
             )
-            lines = []
-
-            # 1. Main Title
-            lines.append(f"# 📁 Data Catalog for {db_profile_name}\n")
-
-            # 2. ERD Section
-            lines.append("\n## 🚀 Entity Relationship Diagram (ERD)\n\n")
-            foreign_keys = catalog_data.get("foreign_keys", [])
-            mermaid_code = self._generate_erd_mermaid(foreign_keys)
-            lines.append(mermaid_code + "\n")
-
-            # 3. Views Section
-            lines.append("\n## 🔎 Views\n\n")
-            views = catalog_data.get("views", [])
-            if not views:
-                lines.append("No views found in this database.\n")
-            else:
-                for view in views:
-                    lines.append(f"### 📄 View: `{view['name']}`\n\n")
-                    lines.append("**AI-Generated Summary:**\n")
-                    lines.append(
-                        f"> {view.get('ai_summary', '(No summary available)')}\n\n"
-                    )
-                    lines.append("**SQL Definition:**\n")
-                    lines.append(
-                        f"```sql\n{view.get('definition', 'N/A')}\n```\n\n"
-                    )
-
-            # 4. Tables Section
-            lines.append("\n## 🗂️ Tables\n\n")
-            tables = catalog_data.get("tables", [])
-            if not tables:
-                lines.append("No tables found in this database.\n")
-            else:
-                for table in tables:
-                    lines.append(f"### 📄 Table: `{table['name']}`\n\n")
-                    lines.append("**AI-Generated Summary:**\n")
-                    lines.append(
-                        f"> {table.get('ai_summary', '(No summary available)')}\n\n"
-                    )
-                    lines.append(
-                        "| Column Name | Data Type | AI-Generated Description |\n"
-                    )
-                    lines.append("| :--- | :--- | :--- |\n")
-                    for column in table.get("columns", []):
-                        name_cell = (
-                            f"🔑 `{column['name']}`"
-                            if column.get("is_pk", False)
-                            else f"`{column['name']}`"
-                        )
-                        lines.append(
-                            f"| {name_cell} | `{column['type']}` | {column['description']} |\n"
-                        )
-                    lines.append("\n")
-            self._atomic_write(output_filename, "".join(lines))
+            content = self.render(catalog_data, db_profile_name=db_profile_name)
+            self._atomic_write(output_filename, content)
             logger.info(f"Successfully wrote catalog to '{output_filename}'.")
         except IOError as e:
             raise WriterError(

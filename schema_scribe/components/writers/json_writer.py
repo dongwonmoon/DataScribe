@@ -68,12 +68,22 @@ class JsonWriter(BaseWriter):
                 os.unlink(tmp_name)
             raise
 
+    def render(self, catalog_data: Dict[str, Any], **kwargs) -> str:
+        """
+        Serializes the catalog to a JSON string without writing.
+
+        This is the pure, in-memory half of `write()` so callers like
+        `DbWorkflow.check()` can diff a fresh render against the existing
+        output file without touching disk.
+        """
+        return json.dumps(catalog_data, indent=2)
+
     def write(self, catalog_data: Dict[str, Any], **kwargs):
         """
         Writes the catalog data to a JSON file with an indent of 2.
 
         Args:
-            catalog_data: The dictionary containing the structured data catalog.
+            catalog_data: The dictionary containing the structured catalog data.
             **kwargs: Must contain `output_filename`.
 
         Raises:
@@ -88,7 +98,7 @@ class JsonWriter(BaseWriter):
 
         try:
             logger.info(f"Writing data catalog to '{output_filename}'.")
-            self._atomic_write(output_filename, json.dumps(catalog_data, indent=2))
+            self._atomic_write(output_filename, self.render(catalog_data))
             logger.info(f"Successfully wrote catalog to '{output_filename}'.")
         except IOError as e:
             logger.error(

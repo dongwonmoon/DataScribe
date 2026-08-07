@@ -330,12 +330,24 @@ def scan_db(
         "--full",
         help="Include per-column profile stat values (requires --dry-run).",
     ),
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help="Run in CI check mode. Fails (exit 1) if the schema "
+        "documentation is outdated or missing.",
+    ),
 ):
     """
     Scans a database, generates documentation, and writes it to an output.
     """
     if full and not dry_run:
         typer.echo("Error: --full requires --dry-run.", err=True)
+        raise typer.Exit(code=1)
+
+    if check and dry_run:
+        typer.echo(
+            "Error: --check and --dry-run are mutually exclusive.", err=True
+        )
         raise typer.Exit(code=1)
 
     # 1. ConfigManager is responsible for component creation
@@ -358,6 +370,26 @@ def scan_db(
         return
 
     llm_client, _ = cfg_manager.get_llm_client(llm_profile)
+
+    if check:
+        # The writer is constructed so check() can render a diff of the new
+        # output against the existing file; check() never calls write().
+        writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+        workflow = DbWorkflow(
+            db_connector=db_connector,
+            llm_client=llm_client,
+            writer=writer,
+            db_profile_name=db_name,
+            output_profile_name=out_name,
+            writer_params=writer_params,
+            provider_name=llm_profile,
+        )
+        if workflow.check():
+            logger.error("CI CHECK FAILED: schema documentation is outdated.")
+            raise typer.Exit(code=1)
+        logger.info("CI CHECK PASSED: schema documentation is up-to-date.")
+        return
+
     writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
 
     # 3. 'Inject' instances into the workflow
