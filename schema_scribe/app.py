@@ -376,6 +376,7 @@ def scan_db(
 
     # 2. Pre-create necessary components (dependencies)
     db_connector, db_name = cfg_manager.get_db_connector(db_profile)
+    llm_provider_name = cfg_manager.get_llm_provider_name(llm_profile)
 
     if dry_run:
         # Never construct the LLM client: OllamaClient.__init__ pulls a model,
@@ -385,7 +386,7 @@ def scan_db(
             llm_client=None,
             writer=None,
             db_profile_name=db_name,
-            provider_name=llm_profile,
+            provider_name=llm_provider_name,
         )
         workflow.dry_run(full=full)
         return
@@ -403,7 +404,7 @@ def scan_db(
             db_profile_name=db_name,
             output_profile_name=out_name,
             writer_params=writer_params,
-            provider_name=llm_profile,
+            provider_name=llm_provider_name,
         )
         if workflow.check():
             logger.error("CI CHECK FAILED: schema documentation is outdated.")
@@ -420,7 +421,7 @@ def scan_db(
             db_profile_name=db_name,
             output_profile_name=out_name,
             writer_params=writer_params,
-            provider_name=llm_profile,
+            provider_name=llm_provider_name,
         )
         workflow.run_interactive()
         return
@@ -436,6 +437,7 @@ def scan_db(
         db_profile_name=db_name,
         output_profile_name=out_name,
         writer_params=writer_params,
+        provider_name=llm_provider_name,
     )
 
     # 4. Execute

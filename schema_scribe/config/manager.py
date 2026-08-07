@@ -91,6 +91,25 @@ class ConfigManager:
             )
             raise typer.Exit(code=1)
 
+    def get_llm_provider_name(self, cli_profile: Optional[str]) -> str:
+        """
+        Returns the LLM provider name for the effective profile (CLI value
+        or the configured default) WITHOUT constructing any client.
+
+        The provider field is what disclosures name (e.g. 'openai',
+        'ollama'); the profile name is a config key and is not a disclosure
+        target. Constructing a client here would violate the dry-run
+        contract, which must never perform provider-side work.
+        """
+        profile_name = self._get_profile_name(cli_profile, "llm")
+        try:
+            return self.config["llm_providers"][profile_name]["provider"]
+        except KeyError:
+            logger.error(
+                f"LLM profile '{profile_name}' not found in config.yaml."
+            )
+            raise typer.Exit(code=1)
+
     def get_writer(
         self, cli_profile: Optional[str]
     ) -> tuple[Optional[BaseWriter], Optional[str], Dict[str, Any]]:

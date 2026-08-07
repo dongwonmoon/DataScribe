@@ -829,6 +829,9 @@ def _check_cli_config_manager(output_path):
         def get_llm_client(self, cli_profile):
             return _check_llm(), "test_llm"
 
+        def get_llm_provider_name(self, cli_profile):
+            return "openai"
+
         def get_writer(self, cli_profile):
             return (
                 MarkdownWriter(),
@@ -885,6 +888,71 @@ def test_db_command_check_exits_0_when_up_to_date(monkeypatch, tmp_path):
     )
     result = CliRunner().invoke(app, ["db", "--check", "--config", "fake.yaml"])
     assert result.exit_code == 0
+
+
+def test_db_command_dry_run_discloses_provider_not_profile(monkeypatch, tmp_path):
+    """
+    The dry-run manifest must name the configured PROVIDER (e.g. 'openai')
+    resolved from the LLM profile — not the profile name itself — without
+    constructing any LLM client.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_db_connector(self, cli_profile):
+            connector = MagicMock(spec=BaseConnector)
+            connector.get_tables.return_value = ["users"]
+            connector.get_columns.return_value = [
+                {"name": "id", "type": "INTEGER"}
+            ]
+            connector.get_views.return_value = []
+            connector.get_foreign_keys.return_value = []
+            connector.close.return_value = None
+            return connector, "d"
+
+        def get_llm_provider_name(self, cli_profile):
+            return "openai"
+
+        def get_writer(self, cli_profile):
+            return None, None, {}
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    result = CliRunner().invoke(app, ["db", "--dry-run", "--config", "fake.yaml"])
+    assert result.exit_code == 0
+    assert "LLM provider : openai" in result.output
+    assert "openai" in result.output
+    assert "test_llm" not in result.output
+
+
+def test_db_command_run_discloses_provider_not_profile(
+    monkeypatch, tmp_path, caplog
+):
+    """
+    The run-start disclosure log must name the configured PROVIDER
+    (e.g. 'openai') resolved from the LLM profile — not the profile name
+    or 'unknown'.
+    """
+    import logging
+
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    output_path = tmp_path / "catalog.md"
+    monkeypatch.setattr(
+        "schema_scribe.app.ConfigManager",
+        _check_cli_config_manager(output_path),
+    )
+    with caplog.at_level(logging.INFO):
+        result = CliRunner().invoke(app, ["db", "--config", "fake.yaml"])
+    assert result.exit_code == 0
+    assert "to provider 'openai'." in caplog.text
+    assert "unknown" not in caplog.text
 
 
 def _interactive_connector():
@@ -1101,6 +1169,9 @@ def test_db_command_interactive_writes_reviewed_catalog(monkeypatch, tmp_path):
             llm = MagicMock(spec=BaseLLMClient)
             llm.get_description.side_effect = ["sum draft", "col draft"]
             return llm, "test_llm"
+
+        def get_llm_provider_name(self, cli_profile):
+            return "openai"
 
         def get_writer(self, cli_profile):
             writer = MagicMock(spec=BaseWriter)
