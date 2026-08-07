@@ -2,6 +2,10 @@
 Unit tests for the SQLiteConnector.
 """
 
+import sqlite3
+
+import pytest
+
 from schema_scribe.components.db_connectors import SQLiteConnector
 
 
@@ -87,4 +91,17 @@ def test_sqlite_connector_profiling(sqlite_db_with_data):
         "is_unique": False,
     }
 
+    connector.close()
+
+
+def test_connection_is_read_only(tmp_path):
+    db_path = tmp_path / "ro.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+    conn.commit()
+    conn.close()
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        connector.connection.execute("CREATE TABLE t2 (id INTEGER)")
     connector.close()

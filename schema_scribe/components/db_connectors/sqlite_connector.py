@@ -54,7 +54,9 @@ class SQLiteConnector(BaseConnector):
 
         try:
             logger.info(f"Connecting to SQLite database at: {db_path}")
-            self.connection = sqlite3.connect(db_path)
+            self.connection = sqlite3.connect(
+                f"file:{db_path}?mode=ro", uri=True
+            )
             self.cursor = self.connection.cursor()
             logger.info("Successfully connected to SQLite database.")
         except sqlite3.Error as e:
