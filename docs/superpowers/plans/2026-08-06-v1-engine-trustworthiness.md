@@ -1115,20 +1115,20 @@ Expected: PASS.
 
 **Interfaces:**
 - Consumes: existing connector implementations.
-- Produces: `pytest.mark.parametrize("connector_id", ["sqlite", "duckdb"])` real-engine tier — identical fixture schema (two tables with PK + FK, one view) and identical assertions per connector: connect → get_tables → get_columns (types, `is_pk`) → get_views → get_foreign_keys → profile (3 stats, no values) → read-only write-attempt rejection → close. Postgres/MariaDB/Snowflake get driver-mocked variants of the same assertions but are **explicitly not v1-qualified** — qualification requires a real-engine acceptance run recorded in the repo (PRODUCT.md:55-57).
+- Produces: `pytest.mark.parametrize("connector_id", ["sqlite", "duckdb"])` real-engine tier — identical fixture schema (two tables with PK + FK, one view) and identical assertions per connector: connect → get_tables → get_columns (types, `is_pk`) → get_views → get_foreign_keys → profile (3 stats, no values) → read-only write-attempt rejection → close. Postgres/MariaDB/Snowflake get driver-mocked variants of the same assertions but are **explicitly not v1-qualified** — qualification requires a real-engine acceptance run recorded in the repo (PRODUCT.md:55-57). The duckdb tier entries are marked `xfail(strict=True)` for the steps that fail on duckdb 1.5.5 (see the suite's `DUCKDB_XFAIL_REASONS`): DuckDB is **not** v1-qualified; only sqlite is.
 
 - [ ] **Step 1: Write the acceptance tests**
 
-Fixture factory in `conftest.py` keyed by connector id; identical assertions per connector; parametrize the real-engine tier over `["sqlite", "duckdb"]`.
+Fixture factory in `conftest.py` keyed by connector id; identical assertions per connector; parametrize the real-engine tier over `["sqlite", "duckdb"]` with the duckdb entries marked `xfail(strict=True)` so the suite stays red-forcing until each failing step is fixed.
 
-- [ ] **Step 2: Run to verify sqlite + duckdb pass**
+- [ ] **Step 2: Run to verify sqlite passes; duckdb records expected failures**
 
 Run: `pytest schema_scribe/tests/acceptance -v`
-Expected: sqlite/duckdb PASS against real engines; mocked variants PASS.
+Expected: sqlite PASS against the real engine; duckdb recorded as expected failures (xfail, strict — `get_tables`, `get_views`, `get_foreign_keys` against duckdb 1.5.5); mocked variants PASS.
 
 - [ ] **Step 3: Minimal implementation**
 
-Per the Interfaces block. Record in the suite docstring: v1-qualified = sqlite, duckdb (real-engine suite passing); postgres/mariadb/snowflake unqualified until a real-engine acceptance run is executed and recorded (needs CI or a documented manual run).
+Per the Interfaces block. Record in the suite docstring: **v1-qualified = sqlite only**; duckdb deferred — its real-engine tier currently records expected failures (see the acceptance suite xfails: `SHOW ALL TABLES` row shape, unfiltered internal `duckdb_views()`, sqlite-extension FK visibility); postgres/mariadb/snowflake unqualified until a real-engine acceptance run is executed and recorded (needs CI or a documented manual run).
 
 - [ ] **Step 4: Commit** (title `test: add shared connector acceptance suite`)
 
@@ -1262,6 +1262,7 @@ Expected: PASS.
 - Benchmark harness: query count / elapsed / LLM calls (PRODUCT.md:117) — deferred; the existing `call_count == 12` assertion (test_db_workflow.py:277) is the seed.
 - Drift checks in CI, dbt removed-model detection (`dbt --check` reverse set difference, dbt_yaml_writer.py:100-104) — product-sequence step 2.
 - PostgresCommentWriter connection-lifecycle bug (db_workflow.py:71-76 vs postgres_comment_writer.py:73-76) — adapter qualification.
+- DuckDB connector real-engine qualification (the acceptance suite's real-engine tier records expected failures on duckdb 1.5.5: `get_tables`, `get_views`, `get_foreign_keys` — see `DUCKDB_XFAIL_REASONS`) — adapter qualification; only sqlite is v1-qualified.
 - Snowflake real-engine qualification and read-only enforcement (declared not v1-supported; docstring updated in Task 1.4) — adapter qualification.
 - dbt_markdown_writer and mermaid_writer atomicity (they remain truncate-on-open; PRODUCT.md:50 names only Markdown/JSON for v1) — adapter qualification.
 - Hosted demo — product-sequence step 3.
