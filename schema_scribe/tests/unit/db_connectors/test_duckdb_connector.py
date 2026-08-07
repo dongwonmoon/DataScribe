@@ -2,6 +2,7 @@
 Unit tests for the DuckDBConnector.
 """
 
+import duckdb
 import pytest
 
 from unittest.mock import patch, MagicMock, call
@@ -215,3 +216,24 @@ def test_duckdb_get_views_file_scan(mock_duckdb_lib: MagicMock):
     assert views == []
     # Should not execute any query (except httpfs)
     assert mock_duckdb_lib.mock_cursor.execute.call_count == 1
+
+
+def test_is_pk_detected_from_describe(tmp_path):
+    """
+    Regression lock: real DuckDB DESCRIBE reports PK columns as 'PRI' in the
+    key slot (probe on duckdb 1.5.5), so is_pk works without changes.
+    """
+    db = duckdb.connect(str(tmp_path / "pk.db"))
+    db.execute(
+        "CREATE TABLE t (a INTEGER, b INTEGER, c VARCHAR, PRIMARY KEY (a, b))"
+    )
+    db.close()
+
+    connector = DuckDBConnector()
+    connector.connect({"path": str(tmp_path / "pk.db")})
+    cols = {col["name"]: col for col in connector.get_columns("t")}
+
+    assert cols["a"]["is_pk"] is True
+    assert cols["b"]["is_pk"] is True
+    assert cols["c"]["is_pk"] is False
+    connector.close()
