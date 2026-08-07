@@ -47,6 +47,10 @@ class SnowflakeConnector(SqlBaseConnector):
         setting the `self.connection`, `self.cursor`, `self.dbname`, and
         `self.schema_name` attributes upon a successful connection.
 
+        Read-only enforcement relies on the account role's grants; Snowflake
+        does not support a server-side read-only session mode. Snowflake is
+        NOT v1-qualified (see docs/PRODUCT.md:55-57 and the acceptance suite).
+
         Args:
             db_params: A dictionary of connection parameters. Expected keys
                        include `user`, `password`, `account`, `warehouse`,

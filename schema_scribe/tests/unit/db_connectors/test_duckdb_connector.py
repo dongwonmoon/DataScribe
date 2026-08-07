@@ -43,6 +43,14 @@ def test_duckdb_connect_db_file(mock_duckdb_lib: MagicMock):
     assert connector.is_directory_scan is False
 
 
+def test_file_connection_is_read_only(mock_duckdb_lib: MagicMock):
+    """Regression lock: persistent .db/.duckdb file connections are read-only."""
+    connector = DuckDBConnector()
+    connector.connect({"path": "/tmp/fixture.duckdb"})
+    kwargs = mock_duckdb_lib.connect.call_args.kwargs
+    assert kwargs.get("read_only") is True
+
+
 def test_duckdb_connect_directory_path(mock_duckdb_lib: MagicMock):
     """Tests that DuckDBConnector connects to in-memory for a directory path."""
     connector = DuckDBConnector()
