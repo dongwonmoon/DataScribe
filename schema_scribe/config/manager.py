@@ -91,7 +91,7 @@ class ConfigManager:
             )
             raise typer.Exit(code=1)
 
-    def get_llm_provider_name(self, cli_profile: Optional[str]) -> str:
+    def get_llm_provider_name(self, cli_profile: Optional[str]) -> Optional[str]:
         """
         Returns the LLM provider name for the effective profile (CLI value
         or the configured default) WITHOUT constructing any client.

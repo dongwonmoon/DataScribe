@@ -1756,3 +1756,4 @@ def test_landscape_and_dry_run_work_without_llm_config(tmp_path):
     result = CliRunner().invoke(app, ["db", "--dry-run", "--config", str(config)])
     assert result.exit_code == 0, result.output
     assert "tiny" in result.output
+    assert "unknown" in result.output  # no LLM config → provider renders 'unknown'
