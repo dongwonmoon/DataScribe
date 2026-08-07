@@ -374,9 +374,12 @@ def scan_db(
     # 1. ConfigManager is responsible for component creation
     cfg_manager = ConfigManager(config_path)
 
-    # 2. Pre-create necessary components (dependencies)
-    db_connector, db_name = cfg_manager.get_db_connector(db_profile)
+    # 2. Pre-create necessary components (dependencies).
+    # Resolve the provider name first: it is a config-only read, while
+    # get_db_connector() opens a DB handle. If provider resolution fails
+    # (typer.Exit), no connection was opened and left to be abandoned.
     llm_provider_name = cfg_manager.get_llm_provider_name(llm_profile)
+    db_connector, db_name = cfg_manager.get_db_connector(db_profile)
 
     if dry_run:
         # Never construct the LLM client: OllamaClient.__init__ pulls a model,

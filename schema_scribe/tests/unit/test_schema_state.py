@@ -46,6 +46,26 @@ def test_load_structurally_corrupt_returns_none(tmp_path, content):
     assert SchemaState.load(str(sidecar)) is None
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"tables": {"t": {}}}',
+        '{"tables": {"t": {"columns": []}}}',
+        '{"tables": {"t": {"columns": {}, "pk": {}, "fks": []}}}',
+        '{"tables": {"t": {"columns": {}, "pk": [], "fks": {}}}}',
+    ],
+)
+def test_load_malformed_table_entry_returns_none(tmp_path, content):
+    """
+    Nested malformation inside a table entry — missing keys, or columns /
+    pk / fks of the wrong container type — is corruption: load() returns
+    None instead of handing classify() a table it will KeyError on.
+    """
+    sidecar = tmp_path / "catalog.md.schema-state.json"
+    sidecar.write_text(content)
+    assert SchemaState.load(str(sidecar)) is None
+
+
 def test_load_valid_empty_snapshot_is_not_corrupt(tmp_path):
     """
     A genuinely empty baseline ({'tables': {}}) is a valid snapshot, not

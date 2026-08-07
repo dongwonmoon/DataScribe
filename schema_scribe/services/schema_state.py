@@ -91,8 +91,11 @@ class SchemaState:
 
         Corruption includes structurally-invalid JSON values: anything that
         parses but is not the minimal snapshot shape — a dict whose
-        'tables' key is a dict — is treated as missing so consumers
-        (classify / check) never KeyError on the persisted sidecar.
+        'tables' key is a dict in which every table entry is a dict with
+        a dict-valued 'columns', a list-valued 'pk', and a list-valued
+        'fks' — is treated as missing so consumers (classify / check)
+        never KeyError on the persisted sidecar. Container types are
+        validated; the element types inside them are not.
         """
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -103,6 +106,15 @@ class SchemaState:
             data.get("tables"), dict
         ):
             return None
+        for table in data["tables"].values():
+            if not isinstance(table, dict):
+                return None
+            if not isinstance(table.get("columns"), dict):
+                return None
+            if not isinstance(table.get("pk"), list):
+                return None
+            if not isinstance(table.get("fks"), list):
+                return None
         return data
 
     @staticmethod

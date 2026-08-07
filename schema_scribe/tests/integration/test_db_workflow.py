@@ -738,6 +738,37 @@ def test_check_structurally_corrupt_sidecar_treated_as_missing(
     assert "no existing documentation to compare" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"tables": {"users": {}}}',
+        '{"tables": {"users": {"columns": []}}}',
+        '{"tables": {"users": {"columns": {}, "pk": {}, "fks": []}}}',
+    ],
+)
+def test_check_malformed_table_entry_treated_as_missing(
+    capsys, tmp_path, content
+):
+    """
+    A sidecar whose table entries lack the minimal per-table snapshot
+    shape (dict 'columns', list 'pk', list 'fks') is treated as missing:
+    check() takes the no-baseline path (False, 'no existing documentation
+    to compare') instead of raising KeyError inside classify().
+    """
+    output = tmp_path / "out.md"
+    sidecar = tmp_path / "out.md.schema-state.json"
+    sidecar.write_text(content)
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=None,
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is False
+    assert "no existing documentation to compare" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("content", ["{}", "[]"])
 def test_check_structurally_corrupt_sidecar_with_output_fails_closed(
     tmp_path, content
@@ -974,6 +1005,46 @@ def test_db_command_dry_run_discloses_provider_not_profile(monkeypatch, tmp_path
     assert "LLM provider : openai" in result.output
     assert "openai" in result.output
     assert "test_llm" not in result.output
+
+
+def test_db_command_provider_resolved_before_connector(monkeypatch):
+    """
+    In every db command path that needs both, the LLM provider name is
+    resolved before the DB connector: provider resolution is a config-only
+    read, while get_db_connector() opens a handle that would be abandoned
+    if provider resolution failed afterwards (typer.Exit).
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    order = []
+
+    class RecordingConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_llm_provider_name(self, cli_profile):
+            order.append("provider")
+            return "openai"
+
+        def get_db_connector(self, cli_profile):
+            order.append("connector")
+            connector = MagicMock(spec=BaseConnector)
+            connector.get_tables.return_value = ["users"]
+            connector.get_columns.return_value = [{"name": "id", "type": "INTEGER"}]
+            connector.get_views.return_value = []
+            connector.get_foreign_keys.return_value = []
+            connector.close.return_value = None
+            return connector, "d"
+
+        def get_writer(self, cli_profile):
+            return None, None, {}
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", RecordingConfigManager)
+    result = CliRunner().invoke(app, ["db", "--dry-run", "--config", "fake.yaml"])
+    assert result.exit_code == 0
+    assert order == ["provider", "connector"]
 
 
 def test_db_command_run_discloses_provider_not_profile(
