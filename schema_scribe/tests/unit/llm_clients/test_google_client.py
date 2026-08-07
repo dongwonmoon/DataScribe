@@ -1,12 +1,12 @@
 """
-Unit tests for the GoogleGenAIClient.
+Unit tests for the GoogleGenAIClient (google.genai SDK).
 """
 
 import pytest
 from unittest.mock import patch, MagicMock
 
 from schema_scribe.components.llm_clients import GoogleGenAIClient
-from schema_scribe.core.exceptions import ConfigError
+from schema_scribe.core.exceptions import ConfigError, LLMClientError
 
 
 @patch("schema_scribe.components.llm_clients.google_client.genai")
@@ -19,9 +19,8 @@ def test_google_client_initialization(mock_genai, mocker):
 
     client = GoogleGenAIClient(model="gemini-test")
 
-    mock_genai.configure.assert_called_once_with(api_key="fake_api_key")
-    mock_genai.GenerativeModel.assert_called_once_with("gemini-test")
-    assert client.model is not None
+    mock_genai.Client.assert_called_once_with(api_key="fake_api_key")
+    assert client.model == "gemini-test"
 
 
 def test_google_client_missing_api_key(mocker):
@@ -40,16 +39,32 @@ def test_google_client_get_description(mock_genai, mocker):
         "schema_scribe.components.llm_clients.google_client.settings"
     ).google_api_key = "fake_key"
 
-    mock_model_instance = MagicMock()
-    mock_model_instance.generate_content.return_value.text = "Google response"
-    mock_genai.GenerativeModel.return_value = mock_model_instance
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value.text = "Google response"
+    mock_genai.Client.return_value = mock_client
 
     client = GoogleGenAIClient(model="gemini-test")
     description = client.get_description("test prompt", 150)
 
     assert description == "Google response"
-    # The actual call includes generation_config
-    mock_model_instance.generate_content.assert_called_once_with(
-        "test prompt",
-        generation_config=mock_genai.GenerationConfig(max_output_tokens=150),
+    mock_client.models.generate_content.assert_called_once_with(
+        model="gemini-test",
+        contents="test prompt",
+        config={"max_output_tokens": 150},
     )
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+def test_google_client_empty_response_raises_llm_error(mock_genai, mocker):
+    """A None response.text must raise LLMClientError, not AttributeError."""
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value.text = None
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    with pytest.raises(LLMClientError, match="returned no text"):
+        client.get_description("test prompt", 50)

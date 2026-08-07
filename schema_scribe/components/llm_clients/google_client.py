@@ -3,15 +3,20 @@ This module provides `GoogleGenAIClient`, a concrete implementation of the
 `BaseLLMClient` interface for Google's Generative AI (Gemini) API.
 
 Design Rationale:
-This client is designed to be a straightforward and secure wrapper around the
-official `google-generativeai` Python library. It integrates with the
+This client wraps the official `google-genai` SDK. It integrates with the
 application's centralized settings management (`schema_scribe.utils.config.settings`),
 which securely loads the `GOOGLE_API_KEY` from environment variables (e.g., a
 `.env` file). This approach avoids hardcoding secrets and keeps API key handling
 consistent and secure.
+
+The `google-genai` SDK (not the deprecated `google-generativeai`) is required
+because reasoning models (e.g. gemini-3.5-flash) return responses with a
+`thoughtSignature` part that the legacy SDK cannot parse — it returned empty
+responses with finish_reason MAX_TOKENS. The new SDK extracts `response.text`
+correctly (verified live on 2026-08-07).
 """
 
-import google.generativeai as genai
+from google import genai
 from schema_scribe.core.interfaces import BaseLLMClient
 from schema_scribe.core.exceptions import LLMClientError, ConfigError
 from schema_scribe.utils.config import settings
@@ -27,7 +32,7 @@ class GoogleGenAIClient(BaseLLMClient):
     This class implements the `BaseLLMClient` interface. Its primary
     responsibilities are to:
     1.  Fetch the `GOOGLE_API_KEY` from the application's central settings.
-    2.  Configure the `google-generativeai` library with the API key.
+    2.  Build a `google.genai.Client` with the API key.
     3.  Wrap the `generate_content` API call to provide a consistent
         `get_description` method.
     """
@@ -36,13 +41,12 @@ class GoogleGenAIClient(BaseLLMClient):
         """
         Initializes the Google GenAI (Gemini) client.
 
-        This method configures the `google.generativeai` library with the API key
-        retrieved from the application's settings and instantiates the specified
-        generative model.
+        This method builds a `google.genai.Client` with the API key retrieved
+        from the application's settings.
 
         Args:
             model: The name of the Gemini model to use, as specified in the
-                   `config.yaml` file (e.g., 'gemini-2.5-flash').
+                   `config.yaml` file (e.g., 'gemini-3.5-flash').
 
         Raises:
             ConfigError: If the `GOOGLE_API_KEY` is not found in the environment
@@ -57,8 +61,8 @@ class GoogleGenAIClient(BaseLLMClient):
 
         try:
             logger.info(f"Initializing Google GenAI client with model: {model}")
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel(model)
+            self.client = genai.Client(api_key=api_key)
+            self.model = model
             logger.info("Google GenAI client initialized successfully.")
         except Exception as e:
             logger.error(
@@ -74,7 +78,7 @@ class GoogleGenAIClient(BaseLLMClient):
 
         Args:
             prompt: The prompt to send to the language model.
-            max_tokens: The maximum number of tokens to generates
+            max_tokens: The maximum number of tokens to generate.
 
         Returns:
             The AI-generated description as a string.
@@ -84,14 +88,19 @@ class GoogleGenAIClient(BaseLLMClient):
         """
         try:
             logger.info(
-                f"Sending prompt to Google GenAI '{self.model.model_name}' model..."
+                f"Sending prompt to Google GenAI '{self.model}' model..."
             )
-            generation_config = genai.GenerationConfig(
-                max_output_tokens=max_tokens
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config={"max_output_tokens": max_tokens},
             )
-            response = self.model.generate_content(
-                prompt, generation_config=generation_config
-            )
+            if response.text is None:
+                raise LLMClientError(
+                    "Google GenAI returned no text for this request "
+                    "(the model may have exhausted its output budget on "
+                    "thinking tokens)."
+                )
             description = response.text.strip()
             logger.info("Response received from Google GenAI.")
             return description

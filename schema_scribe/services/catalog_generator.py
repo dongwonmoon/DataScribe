@@ -199,8 +199,11 @@ class CatalogGenerator:
                 )
 
                 # Get the column description from the LLM client.
+                # 200 (not 50): reasoning models (e.g. gemini-3.5-flash) burn
+                # the whole output budget on thinking tokens; 50 left no
+                # output text at all (verified live 2026-08-07).
                 description = self.llm_client.get_description(
-                    prompt, max_tokens=50
+                    prompt, max_tokens=200
                 )
 
                 enriched_columns.append(
