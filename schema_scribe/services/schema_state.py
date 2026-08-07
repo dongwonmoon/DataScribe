@@ -88,31 +88,45 @@ class SchemaState:
     def load(path: str) -> Optional[Dict[str, Any]]:
         """
         Loads a snapshot, returning None for a missing or corrupt file.
+
+        Corruption includes structurally-invalid JSON values: anything that
+        parses but is not the minimal snapshot shape — a dict whose
+        'tables' key is a dict — is treated as missing so consumers
+        (classify / check) never KeyError on the persisted sidecar.
         """
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
         except (OSError, ValueError):
             return None
+        if not isinstance(data, dict) or not isinstance(
+            data.get("tables"), dict
+        ):
+            return None
+        return data
 
     @staticmethod
     def classify(
         prev: Optional[Dict[str, Any]], curr: Dict[str, Any]
     ) -> Dict[str, List[str]]:
         """
-        Classifies tables as added, removed, or structurally changed
-        against the previous snapshot. `prev=None` (no baseline) marks
-        every table as added.
+        Classifies tables and views as added, removed, or structurally
+        changed against the previous snapshot. `prev=None` (no baseline)
+        marks every table and view as added.
 
         A table is structurally changed when its column map
         ({col: type} — a type change or a column added/removed), its PK
         set, or its FK set (compared as (source, target) pairs, so a
-        changed FK target counts) differs. Unchanged tables appear in
-        neither list. All lists are returned in sorted order.
+        changed FK target counts) differs. Views carry no structure in the
+        snapshot (names only), so they can be added or removed but never
+        structurally changed. Unchanged objects appear in neither list.
+        All lists are returned in sorted order.
         """
+        prev_views = set(prev.get("views", [])) if prev else set()
+        curr_views = set(curr.get("views", []))
         if prev is None:
             return {
-                "added": sorted(curr["tables"]),
+                "added": sorted(set(curr["tables"]) | curr_views),
                 "removed": [],
                 "structurally_changed": [],
             }
@@ -131,7 +145,7 @@ class SchemaState:
             ):
                 changed.append(name)
         return {
-            "added": sorted(curr_names - prev_names),
-            "removed": sorted(prev_names - curr_names),
+            "added": sorted((curr_names - prev_names) | (curr_views - prev_views)),
+            "removed": sorted((prev_names - curr_names) | (prev_views - curr_views)),
             "structurally_changed": changed,
         }

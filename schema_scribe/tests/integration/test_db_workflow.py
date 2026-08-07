@@ -714,6 +714,53 @@ def test_check_stale_sidecar_reports_added_table(capsys, tmp_path):
     assert "[added]                users" in out
 
 
+@pytest.mark.parametrize("content", ["{}", "[]"])
+def test_check_structurally_corrupt_sidecar_treated_as_missing(
+    capsys, tmp_path, content
+):
+    """
+    A sidecar that parses but has no snapshot shape (e.g. {} or []) is
+    treated as missing: check() takes the no-baseline path (False, 'no
+    existing documentation to compare') instead of raising KeyError on
+    prev['tables'].
+    """
+    output = tmp_path / "out.md"
+    sidecar = tmp_path / "out.md.schema-state.json"
+    sidecar.write_text(content)
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=None,
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is False
+    assert "no existing documentation to compare" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("content", ["{}", "[]"])
+def test_check_structurally_corrupt_sidecar_with_output_fails_closed(
+    tmp_path, content
+):
+    """
+    A structurally corrupt sidecar next to an existing output file has no
+    baseline to prove currency → fails closed: every table classifies as
+    added and check() returns True (no KeyError).
+    """
+    output = tmp_path / "out.md"
+    output.write_text("# OLD DOCUMENT\n", encoding="utf-8")
+    sidecar = tmp_path / "out.md.schema-state.json"
+    sidecar.write_text(content)
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=MarkdownWriter(),
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is True
+
+
 def test_check_unchanged_sidecar_returns_false(capsys, tmp_path):
     """
     A sidecar matching the fresh generation classifies 'users' as
