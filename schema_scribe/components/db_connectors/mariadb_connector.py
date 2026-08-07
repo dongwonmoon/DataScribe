@@ -77,6 +77,7 @@ class MariaDBConnector(SqlBaseConnector):
                 database=self.dbname,
             )
             self.cursor = self.connection.cursor()
+            self.cursor.execute("SET SESSION TRANSACTION READ ONLY")
             logger.info(
                 f"Successfully connected to MariaDB/MySQL DB '{self.dbname}'."
             )
