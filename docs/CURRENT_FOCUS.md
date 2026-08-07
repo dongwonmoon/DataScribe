@@ -5,13 +5,38 @@
 - Branch: `dev` (integration). The v1 engine trustworthiness plan
   (`docs/superpowers/plans/2026-08-06-v1-engine-trustworthiness.md`) is
   COMPLETE — all slices 0-8 executed and merged (33 commits).
+- Live-demo round (2026-08-07) verified the real-LLM path end to end and
+  shipped the Google client migration (see Evidence).
 - Next: user decision on the following phase — product-sequence step 2
   (bounded schema-change/drift checks) vs portfolio/marketing work vs
   something else.
-- Gate: `./scripts/verify.sh` (230 passed + 3 xfails on `dev`).
+- Gate: `./scripts/verify.sh` (238 passed + 3 xfails on `dev`).
 
 ## Evidence
 
+- Live real-LLM demo (2026-08-07) against the Google free tier produced the
+  first clean end-to-end catalog (gemini-3.1-flash-lite): read-only → profile
+  → disclosure → LLM → atomic write → sidecar → ERD. Findings shipped as
+  fixes on `dev`:
+  - Deprecated `google.generativeai` cannot parse reasoning-model responses
+    (thoughtSignature); migrated to `google.genai` (verified: gemini-3.5-flash
+    works via REST/SDK; free tier 5 RPM for it, flash-lite tolerates rapid
+    calls).
+  - gemma-4-26b/31b responses have a separate `thought` part; the old SDK
+    read it and every description looked like a prompt echo. The new SDK
+    returns the answer part only — the model was answering correctly all
+    along (user suspicion confirmed).
+  - Reasoning models emit verbose thoughts: 200-token budgets yield
+    thought-only responses; budgets raised to 512 with a retry-once at
+    double budget when `text` is None.
+  - Free-tier quotas (5-15 RPM per model) abort multi-call runs; the Google
+    client now retries 429 with the server-advised delay (up to 3).
+  - `requirements.txt` regenerated via `uv pip compile` (pip-compile is
+    broken against current pip); clean-install smoke test passed.
+  - First real-model evaluation data recorded: gemma-4-26b-a4b-it = poor
+    instruction following through this endpoint; gemma-4-31b = noisy;
+    gemini-3.1-flash-lite = clean, fast, quota-tolerant. Per-model prompt
+    variants rejected by user decision (single model-agnostic prompt set).
 - The full plan executed with subagent-driven development: every task passed
   a task review; two final whole-branch reviews (slices 0-7, slice 8) both
   passed after fix waves. The shared acceptance suite found DuckDB fails the
