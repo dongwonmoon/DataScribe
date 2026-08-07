@@ -32,20 +32,15 @@ def mock_db_connector(sqlite_db: str):
     """
     mock_connector = MagicMock(spec=BaseConnector)
     mock_connector.db_profile_name = "test_db"
-    mock_connector.get_tables.return_value = [
-        {"name": "users", "comment": None},
-        {"name": "products", "comment": None},
-        {"name": "orders", "comment": None},
-    ]
+    mock_connector.get_tables.return_value = ["users", "products", "orders"]
     mock_connector.get_views.return_value = [
         {
             "name": "user_orders",
             "definition": "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
         }
     ]
-    mock_connector.get_columns.side_effect = [
-        # users table columns
-        [
+    _columns_by_table = {
+        "users": [
             {
                 "name": "id",
                 "type": "INTEGER",
@@ -61,8 +56,7 @@ def mock_db_connector(sqlite_db: str):
                 "comment": None,
             },
         ],
-        # products table columns
-        [
+        "products": [
             {
                 "name": "id",
                 "type": "INTEGER",
@@ -85,8 +79,7 @@ def mock_db_connector(sqlite_db: str):
                 "comment": None,
             },
         ],
-        # orders table columns
-        [
+        "orders": [
             {
                 "name": "id",
                 "type": "INTEGER",
@@ -109,6 +102,9 @@ def mock_db_connector(sqlite_db: str):
                 "comment": None,
             },
         ],
+    }
+    mock_connector.get_columns.side_effect = lambda table_name: _columns_by_table[
+        table_name
     ]
     mock_connector.get_foreign_keys.return_value = [
         {
@@ -125,8 +121,7 @@ def mock_db_connector(sqlite_db: str):
         },
     ]
     mock_connector.get_column_profile.return_value = {
-        "total_count": 0,
-        "null_count": 0,
+        "null_ratio": 0.0,
         "distinct_count": 0,
         "is_unique": True,
     }
@@ -262,8 +257,8 @@ def test_db_workflow_end_to_end_with_profiling(
         prompt_text = call[0][0]
         # Make the search more flexible
         if (
-            "Table: {'name': 'users', 'comment': None}" in prompt_text
-            and "Column: id" in prompt_text
+            "- Table: users" in prompt_text
+            and "- Column: id" in prompt_text
             and "Data Profile Context:" in prompt_text
         ):
             users_id_prompt = prompt_text
@@ -273,7 +268,7 @@ def test_db_workflow_end_to_end_with_profiling(
 
     # Check that the prompt contains the mocked profile stats
     assert "Data Profile Context:" in users_id_prompt
-    assert "- Null Ratio: N/A" in users_id_prompt
+    assert "- Null Ratio: 0.0" in users_id_prompt
     assert "- Is Unique: True" in users_id_prompt
     assert "- Distinct Count: 0" in users_id_prompt
 
@@ -641,8 +636,11 @@ def test_sidecar_write_failure_does_not_fail_run(
         with patch(
             "schema_scribe.workflows.db_workflow.SchemaState.save",
             side_effect=IOError("disk full"),
-        ):
+        ) as mock_save:
             workflow.run()
+            # Non-vacuity lock: the patched save must actually be reached
+            # (snapshot() must succeed first — string table names required).
+            mock_save.assert_called_once()
 
     mock_writer.write.assert_called_once()
     assert "Failed to save schema state sidecar" in caplog.text

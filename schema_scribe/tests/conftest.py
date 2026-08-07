@@ -8,44 +8,6 @@ This helps in creating a consistent testing setup and reducing code duplication.
 import pytest
 import sqlite3
 import yaml
-from unittest.mock import MagicMock
-from schema_scribe.prompts import DBT_DRIFT_CHECK_PROMPT
-
-
-@pytest.fixture
-def mock_llm_client(mocker):
-    """
-    Mocks the LLM client initialization and returns a mock object.
-
-    This fixture patches the `init_llm` function in both db_workflow and dbt_workflow
-    modules to prevent actual LLM API calls during tests. The mock client's
-    `get_description` method is set to return a predictable, fixed string.
-    """
-    mock_client = MagicMock()
-
-    # --- Smart side_effect function ---
-    def smart_get_description(prompt: str, max_tokens: int) -> str:
-        if (
-            DBT_DRIFT_CHECK_PROMPT.splitlines()[1] in prompt
-        ):  # Check for drift prompt
-            # Default response for drift is "MATCH"
-            # Tests can override this by re-mocking mock_client.get_description
-            return "MATCH"
-
-        # Default response for all other prompts
-        return "This is an AI-generated description."
-
-    mock_client.get_description.side_effect = smart_get_description
-
-    # Patch the init_llm function where it's used in the workflows
-    mocker.patch(
-        "schema_scribe.core.db_workflow.init_llm", return_value=mock_client
-    )
-    mocker.patch(
-        "schema_scribe.core.dbt_workflow.init_llm", return_value=mock_client
-    )
-
-    return mock_client
 
 
 @pytest.fixture
