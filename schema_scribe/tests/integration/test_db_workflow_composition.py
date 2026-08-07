@@ -28,6 +28,14 @@ def test_real_sqlite_composition(tmp_path):
     assert out.exists()
     assert "draft description" in out.read_text()
 
+    sidecar = tmp_path / "catalog.md.schema-state.json"
+    assert sidecar.exists()
+    state = json.loads(sidecar.read_text())
+    assert state["tables"]["users"]["pk"] == ["id"]
+    assert state["tables"]["orders"]["fks"] == [
+        {"source": "user_id", "target": "users.id"},
+    ]
+
 
 def test_catalog_carries_is_pk(tmp_path):
     db_path = tmp_path / "pk.db"

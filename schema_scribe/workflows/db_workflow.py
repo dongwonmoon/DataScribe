@@ -18,6 +18,7 @@ from schema_scribe.core.interfaces import (
     BaseWriter,
 )
 from schema_scribe.services.catalog_generator import CatalogGenerator
+from schema_scribe.services.schema_state import SchemaState
 from schema_scribe.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -194,6 +195,21 @@ class DbWorkflow:
             
             self.writer.write(catalog, **writer_kwargs)
             logger.info("Catalog written successfully.")
+
+            output_filename = self.writer_params.get("output_filename")
+            if output_filename:
+                try:
+                    sidecar_path = f"{output_filename}.schema-state.json"
+                    SchemaState.save(
+                        SchemaState.snapshot(catalog), sidecar_path
+                    )
+                    logger.info(
+                        f"Schema state sidecar saved to '{sidecar_path}'."
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to save schema state sidecar: {e}"
+                    )
 
         except (KeyError, ValueError, IOError) as e:
             logger.error(

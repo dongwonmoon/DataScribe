@@ -6,6 +6,7 @@ ensuring that it correctly uses the components (connector, generator, writer)
 to produce a data catalog from a database.
 """
 
+import json
 import logging
 import pytest
 from pathlib import Path
@@ -501,3 +502,146 @@ def test_generation_failure_preserves_output(tmp_path):
 
     assert target.read_text() == "PREVIOUS"
     connector.close.assert_called_once()
+
+
+def test_run_writes_schema_state_sidecar(
+    tmp_path: Path, mock_llm_client, mock_writer
+):
+    """
+    After a successful writer.write, run() must persist the schema state
+    snapshot to <output_filename>.schema-state.json: per-table column
+    types and PKs, FK (source, target) pairs, and view names.
+
+    The connector mock returns string table names per the BaseConnector
+    interface (the shared fixture's dict names are out-of-contract).
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.db_profile_name = "test_db"
+    connector.get_tables.return_value = ["users", "orders"]
+    connector.get_columns.side_effect = [
+        [
+            {
+                "name": "id",
+                "type": "INTEGER",
+                "is_nullable": False,
+                "is_pk": True,
+                "comment": None,
+            },
+            {
+                "name": "email",
+                "type": "TEXT",
+                "is_nullable": False,
+                "is_pk": False,
+                "comment": None,
+            },
+        ],
+        [
+            {
+                "name": "id",
+                "type": "INTEGER",
+                "is_nullable": False,
+                "is_pk": True,
+                "comment": None,
+            },
+            {
+                "name": "user_id",
+                "type": "INTEGER",
+                "is_nullable": False,
+                "is_pk": False,
+                "comment": None,
+            },
+        ],
+    ]
+    connector.get_views.return_value = [
+        {"name": "user_orders", "definition": "SELECT * FROM users JOIN orders"}
+    ]
+    connector.get_foreign_keys.return_value = [
+        {
+            "source_table": "orders",
+            "source_column": "user_id",
+            "target_table": "users",
+            "target_column": "id",
+        }
+    ]
+    connector.get_column_profile.return_value = {
+        "total_count": 0,
+        "null_count": 0,
+        "distinct_count": 0,
+        "is_unique": True,
+    }
+    connector.close.return_value = None
+
+    output_md_path = tmp_path / "db_catalog.md"
+    workflow = DbWorkflow(
+        llm_client=mock_llm_client,
+        db_connector=connector,
+        writer=mock_writer,
+        db_profile_name="test_db",
+        output_profile_name="test_markdown_output",
+        writer_params={"output_filename": str(output_md_path)},
+    )
+    workflow.run()
+
+    sidecar = tmp_path / "db_catalog.md.schema-state.json"
+    assert sidecar.exists()
+    state = json.loads(sidecar.read_text())
+    assert set(state["tables"]) == {"users", "orders"}
+    assert state["tables"]["users"]["columns"] == {
+        "id": "INTEGER",
+        "email": "TEXT",
+    }
+    assert state["tables"]["users"]["pk"] == ["id"]
+    assert state["tables"]["orders"]["fks"] == [
+        {"source": "user_id", "target": "users.id"},
+    ]
+    assert state["views"] == ["user_orders"]
+    assert "generated_at" in state
+
+
+def test_run_without_output_filename_writes_no_sidecar(
+    tmp_path: Path, mock_db_connector, mock_llm_client, mock_writer
+):
+    """
+    A run without output_filename in writer_params must not write any
+    sidecar file — the sidecar is only meaningful next to a file output.
+    """
+    workflow = DbWorkflow(
+        llm_client=mock_llm_client,
+        db_connector=mock_db_connector,
+        writer=mock_writer,
+        db_profile_name="test_db",
+        output_profile_name="test_markdown_output",
+    )
+    workflow.run()
+
+    assert list(tmp_path.glob("*.schema-state.json")) == []
+    mock_writer.write.assert_called_once()
+
+
+def test_sidecar_write_failure_does_not_fail_run(
+    tmp_path: Path, mock_db_connector, mock_llm_client, mock_writer, caplog
+):
+    """
+    The documentation output is the product and the sidecar is
+    bookkeeping: a sidecar write failure must log a warning and leave the
+    run's exit status unaffected.
+    """
+    output_md_path = tmp_path / "db_catalog.md"
+    workflow = DbWorkflow(
+        llm_client=mock_llm_client,
+        db_connector=mock_db_connector,
+        writer=mock_writer,
+        db_profile_name="test_db",
+        output_profile_name="test_markdown_output",
+        writer_params={"output_filename": str(output_md_path)},
+    )
+    with caplog.at_level(logging.WARNING):
+        with patch(
+            "schema_scribe.workflows.db_workflow.SchemaState.save",
+            side_effect=IOError("disk full"),
+        ):
+            workflow.run()
+
+    mock_writer.write.assert_called_once()
+    assert "Failed to save schema state sidecar" in caplog.text
+    assert not (tmp_path / "db_catalog.md.schema-state.json").exists()
