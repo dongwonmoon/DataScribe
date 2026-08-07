@@ -18,6 +18,50 @@ from typing import Dict, Any
 from schema_scribe.core.exceptions import ConfigError
 
 
+def quote_identifier(name: str) -> str:
+    """
+    Quotes a SQL identifier using ANSI double-quote rules.
+
+    The name is wrapped in double quotes and embedded double quotes are
+    doubled. NUL bytes are rejected because many drivers truncate strings
+    at the first NUL, which would silently change the identifier.
+
+    Args:
+        name: The identifier to quote.
+
+    Returns:
+        The quoted identifier, e.g. `tab"le` -> `"tab""le"`.
+
+    Raises:
+        ValueError: If the name contains a NUL byte.
+    """
+    if "\x00" in name:
+        raise ValueError("Identifier must not contain NUL bytes")
+    return '"' + name.replace('"', '""') + '"'
+
+
+def quote_literal(value: str) -> str:
+    """
+    Quotes a string literal using SQL single-quote rules.
+
+    The value is wrapped in single quotes and embedded single quotes are
+    doubled. NUL bytes are rejected because many drivers truncate strings
+    at the first NUL, which would silently change the value.
+
+    Args:
+        value: The string value to quote.
+
+    Returns:
+        The quoted literal, e.g. `tab'le` -> `'tab''le'`.
+
+    Raises:
+        ValueError: If the value contains a NUL byte.
+    """
+    if "\x00" in value:
+        raise ValueError("Literal must not contain NUL bytes")
+    return "'" + value.replace("'", "''") + "'"
+
+
 def expand_env_vars(content: str) -> str:
     """
     Expands environment variables of the form `${VAR}` in a string.

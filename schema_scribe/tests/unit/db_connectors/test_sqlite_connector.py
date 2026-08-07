@@ -133,3 +133,63 @@ def test_composite_pk_all_columns_marked(tmp_path):
     assert cols["a"]["is_pk"] is True
     assert cols["b"]["is_pk"] is True
     connector.close()
+
+
+def test_quoted_table_and_column_names_roundtrip(tmp_path):
+    """
+    Regression lock (issue #3 finding #1): a table named `tab'le` and a column
+    named `col"x` must not break get_columns / get_foreign_keys /
+    get_column_profile. Before quoting, PRAGMA table_info('tab'le') raised
+    sqlite3.OperationalError: near "le": syntax error.
+    """
+    db_path = tmp_path / "quoted.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        'CREATE TABLE "tab\'le" ("col""x" INTEGER PRIMARY KEY, normal TEXT)'
+    )
+    conn.execute(
+        'CREATE TABLE parent (id INTEGER PRIMARY KEY)'
+    )
+    conn.execute(
+        'ALTER TABLE "tab\'le" ADD COLUMN parent_id INTEGER '
+        'REFERENCES parent(id)'
+    )
+    conn.executemany(
+        'INSERT INTO "tab\'le" ("col""x", normal, parent_id) VALUES (?, ?, ?)',
+        [(1, "a", 1), (2, "b", 1), (3, None, 1)],
+    )
+    conn.execute("INSERT INTO parent (id) VALUES (1)")
+    conn.commit()
+    conn.close()
+
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+
+    cols = connector.get_columns("tab'le")
+    col_by_name = {c["name"]: c for c in cols}
+    assert set(col_by_name) == {'col"x', "normal", "parent_id"}
+    assert col_by_name['col"x']["is_pk"] is True
+
+    prof = connector.get_column_profile("tab'le", 'col"x')
+    assert prof == {
+        "null_ratio": 0.0,
+        "distinct_count": 3,
+        "is_unique": True,
+    }
+
+    prof_null = connector.get_column_profile("tab'le", "normal")
+    assert prof_null == {
+        "null_ratio": round(1 / 3, 2),
+        "distinct_count": 2,
+        "is_unique": False,
+    }
+
+    fks = connector.get_foreign_keys()
+    assert {
+        "source_table": "tab'le",
+        "source_column": "parent_id",
+        "target_table": "parent",
+        "target_column": "id",
+    } in fks
+
+    connector.close()

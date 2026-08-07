@@ -22,6 +22,7 @@ from typing import List, Dict, Any, Optional
 from schema_scribe.core.interfaces import BaseConnector
 from schema_scribe.core.exceptions import ConnectorError
 from schema_scribe.utils.logger import get_logger
+from schema_scribe.utils.utils import quote_identifier, quote_literal
 
 logger = get_logger(__name__)
 
@@ -138,7 +139,8 @@ class DuckDBConnector(BaseConnector):
                 glob_path = f"{glob_path.rstrip('/')}/*.*"
 
             query = (
-                f"SELECT basename(file_name) FROM {glob_func}('{glob_path}')"
+                "SELECT basename(file_name) FROM "
+                f"{glob_func}({quote_literal(glob_path)})"
             )
             logger.info(f"Globbing for files using query: {query}")
             try:
@@ -169,11 +171,14 @@ class DuckDBConnector(BaseConnector):
 
         try:
             if self.base_path.endswith((".db", ".duckdb")):
-                query = f'DESCRIBE "{table_name}";'
+                query = f"DESCRIBE {quote_identifier(table_name)};"
             else:
                 full_path = self._get_full_path(table_name)
                 logger.info(f"Fetching columns for file: '{full_path}'")
-                query = f"DESCRIBE SELECT * FROM read_auto('{full_path}', SAMPLE_SIZE=50000);"
+                query = (
+                    "DESCRIBE SELECT * FROM "
+                    f"read_auto({quote_literal(full_path)}, SAMPLE_SIZE=50000);"
+                )
 
             self.cursor.execute(query)
             # Row format: (column_name, column_type, null, key, default, extra)
@@ -215,16 +220,17 @@ class DuckDBConnector(BaseConnector):
 
         source_query = ""
         if self.base_path.endswith((".db", ".duckdb")):
-            source_query = f'"{table_name}"'
+            source_query = quote_identifier(table_name)
         else:
             full_path = self._get_full_path(table_name)
-            source_query = f"(SELECT * FROM read_auto('{full_path}'))"
+            source_query = f"(SELECT * FROM read_auto({quote_literal(full_path)}))"
 
+        col = quote_identifier(column_name)
         query = f"""
         SELECT
             COUNT(*) AS total_count,
-            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) AS null_count,
-            COUNT(DISTINCT "{column_name}") AS distinct_count
+            SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS null_count,
+            COUNT(DISTINCT {col}) AS distinct_count
         FROM {source_query} t
         """
         try:

@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Optional
 from schema_scribe.core.interfaces import BaseConnector
 from schema_scribe.core.exceptions import ConnectorError
 from schema_scribe.utils.logger import get_logger
+from schema_scribe.utils.utils import quote_identifier, quote_literal
 
 # Initialize a logger for this module
 logger = get_logger(__name__)
@@ -112,7 +113,7 @@ class SQLiteConnector(BaseConnector):
             )
 
         logger.info(f"Fetching columns for table: '{table_name}'")
-        self.cursor.execute(f"PRAGMA table_info('{table_name}');")
+        self.cursor.execute(f"PRAGMA table_info({quote_literal(table_name)});")
         # Row format from PRAGMA table_info:
         # (cid, name, type, notnull, dflt_value, pk)
         columns = [
@@ -176,7 +177,8 @@ class SQLiteConnector(BaseConnector):
             try:
                 # Row format from PRAGMA foreign_key_list:
                 # (id, seq, table, from, to, on_update, on_delete, match)
-                self.cursor.execute(f"PRAGMA foreign_key_list('{table_name}');")
+                pragma = f"PRAGMA foreign_key_list({quote_literal(table_name)});"
+                self.cursor.execute(pragma)
                 fk_results = self.cursor.fetchall()
                 for fk in fk_results:
                     foreign_keys.append(
@@ -214,12 +216,14 @@ class SQLiteConnector(BaseConnector):
                 "Database connection not established. Call connect() first."
             )
 
+        col = quote_identifier(column_name)
+        table = quote_identifier(table_name)
         query = f"""
         SELECT
             COUNT(*) AS total_count,
-            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) AS null_count,
-            COUNT(DISTINCT "{column_name}") AS distinct_count
-        FROM "{table_name}"
+            SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS null_count,
+            COUNT(DISTINCT {col}) AS distinct_count
+        FROM {table}
         """
         try:
             self.cursor.execute(query)

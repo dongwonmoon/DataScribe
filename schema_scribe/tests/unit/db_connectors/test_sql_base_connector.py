@@ -132,3 +132,31 @@ def test_get_foreign_keys_composite_pairs_by_ordinal():
     query = connector.cursor.execute.call_args[0][0]
     assert "position_in_unique_constraint" in query
     assert "ordinal_position" in query
+
+
+def test_profile_query_quotes_identifiers_not_interpolation():
+    """
+    Regression lock (issue #3 finding #1): the profile query must quote-double
+    identifiers (ANSI) instead of raw-interpolating them. A name containing a
+    double quote would otherwise terminate the identifier and inject SQL.
+    """
+
+    class DummySqlConnector(SqlBaseConnector):
+        def connect(self, db_params: Dict[str, Any]):
+            """Mocked implementation of the abstract method."""
+            pass
+
+    connector = DummySqlConnector()
+    connector.cursor = MagicMock()
+    connector.schema_name = 'weird"schema'
+    connector.cursor.fetchone.return_value = (10, 0, 10)
+
+    connector.get_column_profile('weird"table', 'weird"name')
+
+    query = connector.cursor.execute.call_args[0][0]
+    assert '"weird""schema"."weird""table"' in query
+    assert '"weird""name" IS NULL' in query
+    assert 'COUNT(DISTINCT "weird""name")' in query
+    assert '"weird"schema"' not in query
+    assert '"weird"table"' not in query
+    assert '"weird"name"' not in query

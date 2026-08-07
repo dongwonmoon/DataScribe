@@ -272,3 +272,67 @@ def test_is_pk_detected_from_describe(tmp_path):
     assert cols["b"]["is_pk"] is True
     assert cols["c"]["is_pk"] is False
     connector.close()
+
+
+def test_get_columns_db_mode_quotes_identifier(mock_duckdb_lib: MagicMock):
+    """
+    Regression lock (issue #3 finding #1): DESCRIBE must quote-double the
+    identifier, not raw-interpolate it.
+    """
+    connector = DuckDBConnector()
+    connector.connect({"path": "analytics.db"})
+    connector.get_columns('tab"le')
+
+    expected = 'DESCRIBE "tab""le";'
+    assert mock_duckdb_lib.mock_cursor.execute.call_args[0][0] == expected
+
+
+def test_get_columns_file_mode_quotes_read_auto_path(mock_duckdb_lib: MagicMock):
+    """
+    Regression lock: the read_auto path is a string literal and must have
+    embedded single quotes doubled.
+    """
+    connector = DuckDBConnector()
+    connector.connect({"path": "./data/"})
+    connector.get_columns("order's.csv")
+
+    expected = "DESCRIBE SELECT * FROM read_auto('./data/order''s.csv', SAMPLE_SIZE=50000);"
+    assert mock_duckdb_lib.mock_cursor.execute.call_args[0][0] == expected
+
+
+def test_get_tables_directory_scan_quotes_glob_path(mock_duckdb_lib: MagicMock):
+    """
+    Regression lock: the glob path is a string literal and must have embedded
+    single quotes doubled.
+    """
+    connector = DuckDBConnector()
+    connector.connect({"path": "./da'ta/"})
+    connector.get_tables()
+
+    expected = "SELECT basename(file_name) FROM glob('./da''ta/*.*')"
+    assert mock_duckdb_lib.mock_cursor.execute.call_args[0][0] == expected
+
+
+def test_get_column_profile_file_mode_quotes_literal(mock_duckdb_lib: MagicMock):
+    """
+    Regression lock: the read_auto path in the profile subquery is a literal
+    and the column name is an identifier; both must be escaped.
+    """
+    mock_duckdb_lib.mock_cursor.fetchone.return_value = (5, 0, 5)
+
+    connector = DuckDBConnector()
+    connector.connect({"path": "./data/"})
+    connector.get_column_profile("order's.csv", 'col"x')
+
+    expected = """
+        SELECT
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN "col""x" IS NULL THEN 1 ELSE 0 END) AS null_count,
+            COUNT(DISTINCT "col""x") AS distinct_count
+        FROM (SELECT * FROM read_auto('./data/order''s.csv')) t
+        """
+    normalized_expected = " ".join(expected.split())
+    normalized_actual = " ".join(
+        mock_duckdb_lib.mock_cursor.execute.call_args[0][0].split()
+    )
+    assert normalized_actual == normalized_expected

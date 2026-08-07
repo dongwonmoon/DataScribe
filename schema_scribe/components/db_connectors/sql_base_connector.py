@@ -19,6 +19,7 @@ from typing import List, Dict, Any
 from schema_scribe.core.interfaces import BaseConnector
 from schema_scribe.core.exceptions import ConnectorError
 from schema_scribe.utils.logger import get_logger
+from schema_scribe.utils.utils import quote_identifier
 
 logger = get_logger(__name__)
 
@@ -262,14 +263,18 @@ class SqlBaseConnector(BaseConnector):
                 "Connection not established. The 'connect' method must be called first."
             )
 
-        # Use double quotes for identifiers to be ANSI SQL compliant. This is
-        # safer than f-string interpolation for table/column names in the query body.
+        # Identifiers are quoted with quote_identifier (ANSI double-quote with
+        # embedded-quote doubling); raw f-string interpolation of names would
+        # let a double quote terminate the identifier and inject SQL.
+        col = quote_identifier(column_name)
+        table = quote_identifier(table_name)
+        schema = quote_identifier(self.schema_name)
         query = f"""
         SELECT
             COUNT(*) AS total_count,
-            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) AS null_count,
-            COUNT(DISTINCT "{column_name}") AS distinct_count
-        FROM "{self.schema_name}"."{table_name}"
+            SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS null_count,
+            COUNT(DISTINCT {col}) AS distinct_count
+        FROM {schema}.{table}
         """
         try:
             self.cursor.execute(query)

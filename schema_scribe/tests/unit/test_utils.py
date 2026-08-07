@@ -10,7 +10,12 @@ import os
 from unittest.mock import patch
 import yaml
 
-from schema_scribe.utils.utils import expand_env_vars, load_config
+from schema_scribe.utils.utils import (
+    expand_env_vars,
+    load_config,
+    quote_identifier,
+    quote_literal,
+)
 from schema_scribe.core.exceptions import ConfigError
 
 
@@ -98,3 +103,32 @@ def test_load_config_missing_env_var_raises_error(tmp_path):
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(ConfigError, match="MISSING_VAR_IN_LOAD"):
             load_config(str(config_file))
+
+
+# --- Tests for quote_identifier / quote_literal ---
+
+
+def test_quote_identifier_wraps_in_double_quotes():
+    assert quote_identifier("users") == '"users"'
+
+
+def test_quote_identifier_doubles_embedded_quotes():
+    assert quote_identifier('col"x') == '"col""x"'
+
+
+def test_quote_identifier_rejects_nul_byte():
+    with pytest.raises(ValueError):
+        quote_identifier('tab\x00le')
+
+
+def test_quote_literal_wraps_in_single_quotes():
+    assert quote_literal("users") == "'users'"
+
+
+def test_quote_literal_doubles_embedded_quotes():
+    assert quote_literal("tab'le") == "'tab''le'"
+
+
+def test_quote_literal_rejects_nul_byte():
+    with pytest.raises(ValueError):
+        quote_literal('path\x00x')
