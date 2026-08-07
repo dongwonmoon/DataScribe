@@ -41,6 +41,12 @@
     doubled-budget retry) and free-tier quota. gemini-3.1-flash-lite = clean,
     fast, quota-tolerant. Per-model prompt variants rejected by user decision
     (single model-agnostic prompt set).
+  - First VALID fixed-fixture evaluation (2026-08-08): seeded clean fixture,
+    gemma-4-26b. Baseline A: 3/13 hallucinated qualifiers; lever 1
+    (sibling-column context, zero-cost) cut it to 1/13. Record:
+    docs/superpowers/specs/2026-08-08-eval-baseline.md. The earlier "too
+    obvious" finding was invalidated by the empty-fixture artifact (every
+    column got hardcoded identical stats).
 - The full plan executed with subagent-driven development: every task passed
   a task review; two final whole-branch reviews (slices 0-7, slice 8) both
   passed after fix waves. The shared acceptance suite found DuckDB fails the
