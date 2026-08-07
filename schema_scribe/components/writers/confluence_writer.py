@@ -56,7 +56,7 @@ class ConfluenceWriter(BaseWriter):
             ConnectionError: If the connection to Confluence fails.
         """
         token = self.params.get("api_token")
-        if token and token.startswith("${basedir}") and token.endswith("}"):
+        if token and token.startswith("${") and token.endswith("}"):
             env_var = token[2:-1]
             token = os.getenv(env_var)
             if not token:

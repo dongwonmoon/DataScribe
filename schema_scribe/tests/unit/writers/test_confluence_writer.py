@@ -2,6 +2,7 @@
 Unit tests for the ConfluenceWriter.
 """
 
+import os
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -122,3 +123,35 @@ def test_confluence_writer_dbt_write(
     body = call_kwargs["body"]
     assert "<h1>🧬 Data Catalog for test_dbt_project (dbt)</h1>" in body
     assert "<h2>🚀 Model: <code>customers</code></h2>" in body
+
+
+@patch("schema_scribe.components.writers.confluence_writer.Confluence")
+def test_confluence_writer_resolves_env_var_token(
+    mock_confluence_cls, mocker, mock_db_catalog_data
+):
+    """
+    Issue #3 finding #5 regression lock: an api_token of the form
+    ${ENV_VAR} (as the init wizard emits) must be resolved from the
+    environment, not passed literally (the old code checked
+    '${basedir}' and never matched).
+    """
+    from schema_scribe.components.writers.confluence_writer import ConfluenceWriter
+
+    mock_instance = MagicMock()
+    mock_instance.get_page_id.return_value = None
+    mock_confluence_cls.return_value = mock_instance
+
+    mocker.patch.dict(os.environ, {"CONFLUENCE_TEST_KEY": "env_token_value"})
+    writer = ConfluenceWriter()
+    writer.write(
+        mock_db_catalog_data,
+        url="https://example.atlassian.net",
+        space_key="DS",
+        parent_page_id="1",
+        page_title_prefix="Catalog",
+        username="user@example.com",
+        db_profile_name="test_db_profile",
+        api_token="${CONFLUENCE_TEST_KEY}",
+    )
+    call_kwargs = mock_confluence_cls.call_args.kwargs
+    assert call_kwargs.get("password") == "env_token_value"

@@ -54,7 +54,8 @@ class NotionWriter(BaseWriter):
         token_to_use = None
 
         logger.debug(
-            f"NotionWriter._connect: raw api_token_param: {api_token_param}"
+            "NotionWriter._connect: api_token "
+            f"{'provided' if api_token_param else 'not provided'}"
         )
 
         if api_token_param:
@@ -64,7 +65,7 @@ class NotionWriter(BaseWriter):
                 env_var = api_token_param[2:-1]
                 token_to_use = os.getenv(env_var)
                 logger.debug(
-                    f"NotionWriter._connect: resolved from env '{env_var}': {token_to_use}"
+                    f"NotionWriter._connect: resolved from env '{env_var}'"
                 )
                 if not token_to_use:
                     raise ConfigError(
@@ -72,9 +73,7 @@ class NotionWriter(BaseWriter):
                     )
             else:
                 token_to_use = api_token_param
-                logger.debug(
-                    f"NotionWriter._connect: using direct token: {token_to_use}"
-                )
+                logger.debug("NotionWriter._connect: using direct token")
 
         if not token_to_use:
             raise ConfigError(

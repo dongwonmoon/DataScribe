@@ -6,6 +6,7 @@ class correctly formats data and makes the expected API calls without
 requiring a live connection to the Notion API.
 """
 
+import logging
 import pytest
 from unittest.mock import patch, MagicMock
 import os
@@ -166,3 +167,33 @@ def test_notion_writer_config_errors(mock_db_catalog_data):
     # 2. Missing parent_page_id
     with pytest.raises(ConfigError, match="'parent_page_id' is required"):
         writer.write(mock_db_catalog_data, api_token="fake_token")
+
+
+def test_notion_writer_never_logs_token_value(
+    mock_db_catalog_data, caplog
+):
+    """
+    Issue #3 finding #3: debug logs must not contain the token VALUE
+    (resolved or direct). The sentinel must appear nowhere in the log.
+    """
+    from schema_scribe.components.writers.notion_writer import NotionWriter
+
+    sentinel = "SENTINEL_TOKEN_9f8e7d6c"
+    with caplog.at_level(logging.DEBUG):
+        with patch.dict(os.environ, {"NOTION_SENTINEL_KEY": sentinel}):
+            with patch(
+                "schema_scribe.components.writers.notion_writer.Client"
+            ) as mock_client:
+                mock_client.return_value = MagicMock()
+                writer = NotionWriter()
+                writer.write(
+                    mock_db_catalog_data,
+                    api_token="${NOTION_SENTINEL_KEY}",
+                    parent_page_id="fake-parent-id",
+                )
+                writer.write(
+                    mock_db_catalog_data,
+                    api_token=sentinel,
+                    parent_page_id="fake-parent-id",
+                )
+    assert sentinel not in caplog.text
