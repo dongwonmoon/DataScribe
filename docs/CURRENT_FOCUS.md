@@ -76,6 +76,15 @@ workstream.
 
 ## Deferred
 
+- API server security (GitHub issue #3 #2/#4/#6): authentication, dbt path
+  confinement, cache-file permissions, 500 error detail — PRODUCT.md:84,101-103
+  exclude auth/hosted work from v1; revisit with Phase 3 hosted work. README
+  now binds the serve example to 127.0.0.1 with an unauthenticated warning.
+- Prompt-injection via poisoned metadata (issue #3 note, panel C10): LLM text
+  and DB metadata flow into generated docs/YAML; the review loop (draft
+  framing) mitigates; document explicitly when the eval work lands.
+- Snowflake + PostgresCommentWriter identifier quoting (issue #3 #1 remainder):
+  deferred with adapter qualification (neither is v1-qualified).
 - DuckDB connector real-engine qualification (get_tables/get_views/get_foreign_keys against duckdb 1.5.5; FK path redesign) — acceptance suite pins it with xfail(strict)
 - Engine hardening and optional-dependency boundaries
 - Real-model evaluation fixture and human-review rubric

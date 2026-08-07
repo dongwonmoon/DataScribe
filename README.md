@@ -171,8 +171,14 @@ Schema Scribe includes a built-in FastAPI web server that exposes the core workf
 **1. Launch the server:**
 (Make sure you have installed the server dependencies: `pip install "schema-scribe[server]"`)
 ```bash
-schema-scribe serve --host 0.0.0.0 --port 8000
+schema-scribe serve --host 127.0.0.1 --port 8000
 ```
+
+> ⚠️ **Security note (GitHub issue #3):** the server has **no authentication** —
+> anyone who can reach the port can trigger workflows against configured
+> profiles, and `/api/run/dbt` accepts arbitrary project paths. Bind it to
+> `127.0.0.1` (default) or a trusted network only. The server is a demo
+> surface, not a hardened hosted product (docs/PRODUCT.md non-goals).
 
 **2. Explore the API:**
 Once the server is running, you can access the interactive API documentation (powered by Swagger UI) at:
