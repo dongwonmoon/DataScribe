@@ -16,6 +16,9 @@ responses with finish_reason MAX_TOKENS. The new SDK extracts `response.text`
 correctly (verified live on 2026-08-07).
 """
 
+import re
+import time
+
 from google import genai
 from schema_scribe.core.interfaces import BaseLLMClient
 from schema_scribe.core.exceptions import LLMClientError, ConfigError
@@ -90,11 +93,7 @@ class GoogleGenAIClient(BaseLLMClient):
             logger.info(
                 f"Sending prompt to Google GenAI '{self.model}' model..."
             )
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config={"max_output_tokens": max_tokens},
-            )
+            response = self._generate_with_quota_retry(prompt, max_tokens)
             if response.text is None:
                 # Reasoning models (e.g. gemma-4-26b) emit a thought part
                 # whose length varies per prompt; when thought + answer
@@ -106,10 +105,8 @@ class GoogleGenAIClient(BaseLLMClient):
                     "Google GenAI returned no text; retrying with doubled "
                     "output budget."
                 )
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt,
-                    config={"max_output_tokens": max_tokens * 2},
+                response = self._generate_with_quota_retry(
+                    prompt, max_tokens * 2
                 )
             if response.text is None:
                 raise LLMClientError(
@@ -126,3 +123,36 @@ class GoogleGenAIClient(BaseLLMClient):
                 exc_info=True,
             )
             raise LLMClientError(f"Google GenAI API call failed: {e}") from e
+
+    @staticmethod
+    def _parse_retry_delay(message: str) -> float:
+        """Extracts the server-advised retry delay from a 429 message."""
+        match = re.search(r"retry in ([\d.]+)s", message)
+        return float(match.group(1)) if match else 30.0
+
+    def _generate_with_quota_retry(self, prompt: str, max_tokens: int):
+        """Calls generate_content, retrying up to 3 times on 429 with the
+        server-advised delay. Free tiers (5-15 RPM per model) make quota
+        exhaustion a normal condition for multi-call runs (verified live
+        2026-08-07); without this the run aborts mid-way.
+        """
+        last_error = None
+        for attempt in range(4):
+            try:
+                return self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config={"max_output_tokens": max_tokens},
+                )
+            except Exception as e:  # noqa: BLE001 - SDK raises broad errors
+                last_error = e
+                if getattr(e, "code", None) == 429 and attempt < 3:
+                    delay = self._parse_retry_delay(str(e))
+                    logger.warning(
+                        f"Google GenAI quota exceeded; retrying in "
+                        f"{delay:.0f}s (attempt {attempt + 1}/3)."
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
+        raise last_error

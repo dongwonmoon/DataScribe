@@ -111,3 +111,59 @@ def test_google_client_retry_still_empty_raises(mock_genai, mocker):
     with pytest.raises(LLMClientError, match="returned no text"):
         client.get_description("test prompt", 50)
     assert mock_client.models.generate_content.call_count == 2
+
+
+class _QuotaError(Exception):
+    """Mimics google.genai ClientError with a 429 code."""
+
+    code = 429
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+@patch("schema_scribe.components.llm_clients.google_client.time.sleep")
+def test_google_client_429_retries_then_succeeds(mock_sleep, mock_genai, mocker):
+    """429 responses retry with the server-advised delay, then succeed."""
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    mock_client = MagicMock()
+    ok = MagicMock()
+    ok.text = "quota survivor"
+    mock_client.models.generate_content.side_effect = [
+        _QuotaError("Please retry in 12.5s."),
+        ok,
+    ]
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    description = client.get_description("test prompt", 100)
+
+    assert description == "quota survivor"
+    mock_sleep.assert_called_once_with(12.5)
+    assert mock_client.models.generate_content.call_count == 2
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+@patch("schema_scribe.components.llm_clients.google_client.time.sleep")
+def test_google_client_429_exhausted_raises(mock_sleep, mock_genai, mocker):
+    """Persistent 429 after 3 retries raises LLMClientError."""
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = _QuotaError(
+        "Please retry in 30s."
+    )
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    with pytest.raises(LLMClientError, match="API call failed"):
+        client.get_description("test prompt", 100)
+    assert mock_client.models.generate_content.call_count == 4  # 1 + 3 retries
+    assert mock_sleep.call_count == 3
