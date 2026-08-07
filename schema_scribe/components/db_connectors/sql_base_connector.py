@@ -147,7 +147,7 @@ class SqlBaseConnector(BaseConnector):
                 "type": row[1],
                 "description": "",  # Not available in information_schema
                 "is_nullable": row[2] == "YES",
-                "is_pk": row[3] or False,
+                "is_pk": bool(row[3]),
             }
             for row in self.cursor.fetchall()
         ]

@@ -60,3 +60,29 @@ def test_sql_base_connector_profiling_logic():
         "test_table", "unique_col_null"
     )
     assert stats_unique_null["is_unique"] is False  # Fails because of null
+
+
+def test_get_columns_is_pk_is_bool():
+    """
+    Verifies get_columns coerces the is_pk flag to a bool so callers
+    receive True/False rather than the raw 0/1 integer.
+    """
+
+    class DummySqlConnector(SqlBaseConnector):
+        def connect(self, db_params: Dict[str, Any]):
+            """Mocked implementation of the abstract method."""
+            pass
+
+    connector = DummySqlConnector()
+    connector.cursor = MagicMock()
+    connector.schema_name = "public"
+
+    connector.cursor.fetchall.return_value = [
+        ("pk_col", "integer", "NO", 1),
+        ("plain_col", "text", "YES", 0),
+    ]
+
+    columns = connector.get_columns("test_table")
+
+    assert columns[0]["is_pk"] is True
+    assert columns[1]["is_pk"] is False

@@ -119,3 +119,17 @@ def test_connection_is_read_only(tmp_path):
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
         connector.connection.execute("CREATE TABLE t2 (id INTEGER)")
     connector.close()
+
+
+def test_composite_pk_all_columns_marked(tmp_path):
+    db_path = tmp_path / "pk.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY (a, b))")
+    conn.commit()
+    conn.close()
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+    cols = {c["name"]: c for c in connector.get_columns("t")}
+    assert cols["a"]["is_pk"] is True
+    assert cols["b"]["is_pk"] is True
+    connector.close()

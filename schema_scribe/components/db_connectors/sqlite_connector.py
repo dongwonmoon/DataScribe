@@ -121,7 +121,7 @@ class SQLiteConnector(BaseConnector):
                 "type": row[2],
                 "description": "",  # Not available from PRAGMA
                 "is_nullable": row[3] == 0,  # 'notnull' is 0 for nullable
-                "is_pk": row[5] == 1,  # 'pk' is 1 for primary key
+                "is_pk": row[5] > 0,  # 'pk' is 1+ for primary key (composite)
             }
             for row in self.cursor.fetchall()
         ]
