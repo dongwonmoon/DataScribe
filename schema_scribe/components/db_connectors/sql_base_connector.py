@@ -203,20 +203,25 @@ class SqlBaseConnector(BaseConnector):
         logger.info(f"Fetching foreign keys for schema: '{self.schema_name}'")
         query = """
             SELECT
-                kcu.table_name AS source_table,
-                kcu.column_name AS source_column,
-                ccu.table_name AS target_table,
-                ccu.column_name AS target_column
+                fk.table_name AS source_table,
+                fk.column_name AS source_column,
+                pk.table_name AS target_table,
+                pk.column_name AS target_column
             FROM
                 information_schema.table_constraints AS tc
             JOIN
-                information_schema.key_column_usage AS kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
+                information_schema.key_column_usage AS fk
+                ON tc.constraint_name = fk.constraint_name
+                AND tc.table_schema = fk.table_schema
             JOIN
-                information_schema.constraint_column_usage AS ccu
-                ON ccu.constraint_name = tc.constraint_name
-                AND ccu.table_schema = tc.table_schema
+                information_schema.referential_constraints AS rc
+                ON tc.constraint_name = rc.constraint_name
+                AND tc.table_schema = rc.constraint_schema
+            JOIN
+                information_schema.key_column_usage AS pk
+                ON pk.constraint_name = rc.unique_constraint_name
+                AND pk.table_schema = rc.unique_constraint_schema
+                AND fk.position_in_unique_constraint = pk.ordinal_position
             WHERE
                 tc.constraint_type = 'FOREIGN KEY'
                 AND tc.table_schema = %s;

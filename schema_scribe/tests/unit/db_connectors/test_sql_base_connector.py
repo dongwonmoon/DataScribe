@@ -86,3 +86,49 @@ def test_get_columns_is_pk_is_bool():
 
     assert columns[0]["is_pk"] is True
     assert columns[1]["is_pk"] is False
+
+
+def test_get_foreign_keys_composite_pairs_by_ordinal():
+    """
+    Regression lock: a composite FK on (a, b) -> (x, y) must yield exactly
+    two dicts paired by ordinal position (a->x, b->y) — no cross-product
+    (a->y, b->x), no dropped columns.
+    """
+
+    class DummySqlConnector(SqlBaseConnector):
+        def connect(self, db_params: Dict[str, Any]):
+            """Mocked implementation of the abstract method."""
+            pass
+
+    connector = DummySqlConnector()
+    connector.cursor = MagicMock()
+    connector.schema_name = "public"
+
+    # Rows the corrected query returns for a composite FK: one row per
+    # paired column, already paired by ordinal inside the join.
+    connector.cursor.fetchall.return_value = [
+        ("child", "a", "parent", "x"),
+        ("child", "b", "parent", "y"),
+    ]
+
+    fks = connector.get_foreign_keys()
+
+    assert fks == [
+        {
+            "source_table": "child",
+            "source_column": "a",
+            "target_table": "parent",
+            "target_column": "x",
+        },
+        {
+            "source_table": "child",
+            "source_column": "b",
+            "target_table": "parent",
+            "target_column": "y",
+        },
+    ]
+    # The pairing must happen in the query itself (the cross-product bug
+    # lived in the unpaired constraint_name-only join).
+    query = connector.cursor.execute.call_args[0][0]
+    assert "position_in_unique_constraint" in query
+    assert "ordinal_position" in query

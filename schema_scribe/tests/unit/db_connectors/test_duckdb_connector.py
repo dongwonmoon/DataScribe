@@ -218,6 +218,41 @@ def test_duckdb_get_views_file_scan(mock_duckdb_lib: MagicMock):
     assert mock_duckdb_lib.mock_cursor.execute.call_count == 1
 
 
+def test_duckdb_get_foreign_keys_composite_pairs_by_ordinal(
+    mock_duckdb_lib: MagicMock,
+):
+    """
+    Regression lock: a composite FK on (a, b) -> (x, y) must come back as two
+    dicts paired element-wise from the constraint column arrays — not just the
+    first column pair.
+    """
+    # Real duckdb_constraints() row shape for a composite FK:
+    # (source_table, constraint_column_names, referenced_table,
+    #  referenced_column_names).
+    mock_duckdb_lib.mock_cursor.fetchall.return_value = [
+        ("child", ["a", "b"], "parent", ["x", "y"]),
+    ]
+
+    connector = DuckDBConnector()
+    connector.connect({"path": "analytics.db"})
+    fks = connector.get_foreign_keys()
+
+    assert fks == [
+        {
+            "source_table": "child",
+            "source_column": "a",
+            "target_table": "parent",
+            "target_column": "x",
+        },
+        {
+            "source_table": "child",
+            "source_column": "b",
+            "target_table": "parent",
+            "target_column": "y",
+        },
+    ]
+
+
 def test_is_pk_detected_from_describe(tmp_path):
     """
     Regression lock: real DuckDB DESCRIBE reports PK columns as 'PRI' in the

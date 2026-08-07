@@ -309,23 +309,28 @@ class DuckDBConnector(BaseConnector):
                 """
                 SELECT
                     fk.table_name AS source_table,
-                    fk.column_names[1] AS source_column,
-                    pk.table_name AS target_table,
-                    pk.column_names[1] AS target_column
+                    fk.constraint_column_names AS source_columns,
+                    fk.referenced_table AS target_table,
+                    fk.referenced_column_names AS target_columns
                 FROM duckdb_constraints() fk
-                JOIN duckdb_constraints() pk ON fk.primary_key_index = pk.constraint_index
                 WHERE fk.constraint_type = 'FOREIGN KEY'
             """
             )
-            return [
-                {
-                    "source_table": row[0],
-                    "source_column": row[1],
-                    "target_table": row[2],
-                    "target_column": row[3],
-                }
-                for row in self.cursor.fetchall()
-            ]
+            foreign_keys = []
+            for row in self.cursor.fetchall():
+                source_table, source_columns, target_table, target_columns = row
+                for source_column, target_column in zip(
+                    source_columns, target_columns
+                ):
+                    foreign_keys.append(
+                        {
+                            "source_table": source_table,
+                            "source_column": source_column,
+                            "target_table": target_table,
+                            "target_column": target_column,
+                        }
+                    )
+            return foreign_keys
         except duckdb.CatalogException:
             # This provides backward compatibility for older DuckDB versions
             # that do not have the duckdb_constraints() function.
