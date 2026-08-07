@@ -8,6 +8,8 @@ connector before the call, and every output is deterministically ordered
 tables.
 """
 
+import re
+
 from schema_scribe.components.db_connectors.sqlite_connector import SQLiteConnector
 from schema_scribe.services.landscape import build_landscape
 from schema_scribe.tests.fixtures import db_fixtures
@@ -50,7 +52,7 @@ def test_clusters_legacy_rich_forty_eight_groups(tmp_path):
     assert clusters["other"] == []  # first-class output, not an error state
     named = {k: v for k, v in clusters.items() if k != "other"}
     assert len(named) == 48  # 12 domains x 4 types
-    assert all(k.startswith("TBL_") and not k.endswith("_20") for k in named)
+    assert all(re.fullmatch(r"TBL_[A-Z0-9]+_[A-Z0-9]+", k) for k in named)
     assert sum(len(v) for v in clusters.values()) == len(tables)
     placed = sorted(name for members in clusters.values() for name in members)
     assert placed == sorted(tables)  # every table in exactly one cluster
@@ -81,6 +83,40 @@ def test_uncategorized_tables_land_in_other():
     assert clusters["dim"] == ["dim_customer"]
     assert clusters["fact"] == ["fact_sales"]
     assert sorted(clusters["other"]) == ["random_orders", "users"]
+
+
+def test_mixed_case_names_cluster_with_convention():
+    """Rules are case-insensitive: mixed-case legacy and convention names keep their group."""
+    tables = ["Tbl_Sls_Hdr_2021", "DIM_CUSTOMER", "Fact_Sales", "stg_orders", "Orders_AUDIT"]
+    cols = {t: [{"name": "id", "type": "INTEGER"}] for t in tables}
+    clusters = build_landscape(tables, cols, [])["clusters"]
+
+    assert clusters["TBL_SLS_HDR"] == ["Tbl_Sls_Hdr_2021"]
+    assert clusters["dim"] == ["DIM_CUSTOMER"]
+    assert clusters["fact"] == ["Fact_Sales"]
+    assert clusters["stg"] == ["stg_orders"]
+    assert clusters["audit"] == ["Orders_AUDIT"]
+    assert clusters["other"] == []
+
+
+def test_yearless_legacy_names_share_yearful_group():
+    """TBL_SLS_HDR without a year clusters with its yearful siblings, not 'other'."""
+    tables = ["TBL_SLS_HDR_2021", "TBL_SLS_HDR", "TBL_CUST_MST"]
+    cols = {t: [{"name": "id", "type": "INTEGER"}] for t in tables}
+    clusters = build_landscape(tables, cols, [])["clusters"]
+
+    assert clusters["TBL_SLS_HDR"] == ["TBL_SLS_HDR", "TBL_SLS_HDR_2021"]
+    assert clusters["TBL_CUST_MST"] == ["TBL_CUST_MST"]
+    assert clusters["other"] == []
+
+
+def test_scale_counts_missing_column_type_as_unknown():
+    """A column dict without 'type' counts under 'UNKNOWN', never a None key."""
+    tables = ["users"]
+    cols = {"users": [{"name": "id", "type": "INTEGER"}, {"name": "raw"}]}
+    scale = build_landscape(tables, cols, [])["scale"]
+
+    assert scale["column_types"] == {"INTEGER": 1, "UNKNOWN": 1}
 
 
 def test_core_tables_masters_rank_top(tmp_path):

@@ -18,12 +18,14 @@ Clustering rules (first match wins, case-insensitive):
    legacy-style ``TBL_SLS_HDR_2021`` tables. The year is excluded from the
    group key so versioned tables of one domain/type cluster together
    (probe: 12 domains x 4 kinds = 48 groups).
-2. ``^T_(<DOMAIN>)_(<KIND>)$`` → ``T_<DOMAIN>_<KIND>`` — ``T_SLS_HDR``-style
+2. ``^TBL_(<DOMAIN>)_(<KIND>)$`` → ``TBL_<DOMAIN>_<KIND>`` — the same group
+   key as rule 1, for yearless legacy names like ``TBL_SLS_HDR``.
+3. ``^T_(<DOMAIN>)_(<KIND>)$`` → ``T_<DOMAIN>_<KIND>`` — ``T_SLS_HDR``-style
    legacy names without a year part.
-3. ``^dim_*`` → ``dim``, ``^fact_*`` → ``fact``, ``^stg_*`` → ``stg`` —
+4. ``^dim_*`` → ``dim``, ``^fact_*`` → ``fact``, ``^stg_*`` → ``stg`` —
    warehouse conventions, grouped at family level (one cluster per family).
-4. ``*_audit$`` → ``audit`` — audit trail tables.
-5. Everything else → ``other``. The uncategorized bucket is a first-class
+5. ``*_audit$`` → ``audit`` — audit trail tables.
+6. Everything else → ``other``. The uncategorized bucket is a first-class
    output, not an error state; it is always present, possibly empty.
 
 Core tables are the FK-centrality hubs: in-degree + out-degree on the FK
@@ -42,14 +44,17 @@ from typing import Any, Dict, List
 
 _TOP_N = 10
 
-# First match wins; order is part of the contract.
+# First match wins; order is part of the contract. Case-insensitive so
+# `tbl_sls_hdr_2021` / `DIM_CUSTOMER` keep their convention group; captured
+# domain/kind parts are normalized to uppercase by _cluster_key.
 _CLUSTER_RULES: List[tuple] = [
-    (re.compile(r"^TBL_(?P<domain>[A-Z0-9]+)_(?P<kind>[A-Z0-9]+)_(?P<year>\d{4})$"), "TBL"),
-    (re.compile(r"^T_(?P<domain>[A-Z0-9]+)_(?P<kind>[A-Z0-9]+)$"), "T"),
-    (re.compile(r"^dim_(?P<subject>.+)$"), "dim"),
-    (re.compile(r"^fact_(?P<subject>.+)$"), "fact"),
-    (re.compile(r"^stg_(?P<subject>.+)$"), "stg"),
-    (re.compile(r"^(?P<subject>.+)_audit$"), "audit"),
+    (re.compile(r"^TBL_(?P<domain>[A-Z0-9]+)_(?P<kind>[A-Z0-9]+)_(?P<year>\d{4})$", re.IGNORECASE), "TBL"),
+    (re.compile(r"^TBL_(?P<domain>[A-Z0-9]+)_(?P<kind>[A-Z0-9]+)$", re.IGNORECASE), "TBL"),
+    (re.compile(r"^T_(?P<domain>[A-Z0-9]+)_(?P<kind>[A-Z0-9]+)$", re.IGNORECASE), "T"),
+    (re.compile(r"^dim_(?P<subject>.+)$", re.IGNORECASE), "dim"),
+    (re.compile(r"^fact_(?P<subject>.+)$", re.IGNORECASE), "fact"),
+    (re.compile(r"^stg_(?P<subject>.+)$", re.IGNORECASE), "stg"),
+    (re.compile(r"^(?P<subject>.+)_audit$", re.IGNORECASE), "audit"),
 ]
 
 
@@ -84,7 +89,7 @@ def _scale(
     for table in sorted(tables):
         for column in columns_by_table.get(table, []):
             total_columns += 1
-            column_type = column.get("type")
+            column_type = column.get("type") or "UNKNOWN"
             column_types[column_type] = column_types.get(column_type, 0) + 1
     return {
         "tables": len(tables),

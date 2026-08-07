@@ -1168,8 +1168,9 @@ User research (docs/superpowers/specs/2026-08-07-db-orientation-problem-research
 
 **Files:**
 - Create: `schema_scribe/services/landscape.py`
-- Modify: `schema_scribe/workflows/db_workflow.py` (landscape path)
 - Test: `schema_scribe/tests/unit/test_landscape.py` (new, using the Slice 0.5 fixtures)
+
+Note: the `db_workflow.py` landscape path is wired in Task 8.2, where the renderer defines the command contract.
 
 **Interfaces:**
 - Consumes: `get_tables()` names, `get_columns()` per table, `get_foreign_keys()` pairs (pure function inputs — no DB connection needed beyond collection).
