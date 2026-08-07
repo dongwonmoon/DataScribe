@@ -21,6 +21,9 @@ Base Context:
 Data Profile Context:
 {profile_context}
 
+Sibling Context:
+Other columns in this table: {sibling_columns}
+
 Instructions:
 1.  Use the Data Profile to make your description more accurate.
 2.  If 'is_unique' is True, mention it (e.g., "Unique ID...").

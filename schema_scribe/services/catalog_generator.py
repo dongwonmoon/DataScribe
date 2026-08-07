@@ -191,11 +191,17 @@ class CatalogGenerator:
                 )
 
                 # Format the prompt with table, column, and profiling details.
+                # Sibling columns (already fetched) give the model table-level
+                # context at zero cost (eval lever 1, 2026-08-08).
+                sibling_columns = ", ".join(
+                    c["name"] for c in columns if c["name"] != col_name
+                )
                 prompt = COLUMN_DESCRIPTION_PROMPT.format(
                     table_name=table_name,
                     col_name=col_name,
                     col_type=col_type,
                     profile_context=profile_context,
+                    sibling_columns=sibling_columns,
                 )
 
                 # 512 (not 200): reasoning models (e.g. gemma-4-26b) emit a
