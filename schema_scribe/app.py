@@ -214,7 +214,7 @@ def _prompt_llm_params(
     params = {"provider": llm_type}
 
     if llm_type == "openai":
-        params["model"] = typer.prompt("Model", default="gpt-3.5-turbo")
+        params["model"] = typer.prompt("Model", default="gpt-4o-mini")
         if "OPENAI_API_KEY" not in env_data:
             key = typer.prompt(
                 "OpenAI API Key (sensitive, will be stored in .env)",
@@ -223,7 +223,7 @@ def _prompt_llm_params(
             env_data["OPENAI_API_KEY"] = key
 
     elif llm_type == "google":
-        params["model"] = typer.prompt("Model", default="gemini-2.5-flash")
+        params["model"] = typer.prompt("Model", default="gemma-4-26b-a4b-it")
         if "GOOGLE_API_KEY" not in env_data:
             key = typer.prompt(
                 "Google API Key (sensitive, will be stored in .env)",

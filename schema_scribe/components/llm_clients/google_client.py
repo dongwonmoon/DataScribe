@@ -40,7 +40,7 @@ class GoogleGenAIClient(BaseLLMClient):
         `get_description` method.
     """
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemma-4-26b-a4b-it"):
         """
         Initializes the Google GenAI (Gemini) client.
 

@@ -33,7 +33,7 @@ class OpenAIClient(BaseLLMClient):
         `get_description` method.
     """
 
-    def __init__(self, model: str = "gpt-3.5-turbo"):
+    def __init__(self, model: str = "gpt-4o-mini"):
         """
         Initializes the OpenAIClient.
 
@@ -41,7 +41,7 @@ class OpenAIClient(BaseLLMClient):
         (which are loaded from environment variables) and initializes the client.
 
         Args:
-            model: The name of the OpenAI model to use (e.g., "gpt-3.5-turbo"),
+            model: The name of the OpenAI model to use (e.g., "gpt-4o-mini"),
                    as specified in the `config.yaml` file.
 
         Raises:
