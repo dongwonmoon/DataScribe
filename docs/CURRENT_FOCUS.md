@@ -2,23 +2,25 @@
 
 ## Active Workstream
 
-- Branch: per-slice topic branches off `dev`, executing
-  `docs/superpowers/plans/2026-08-06-v1-engine-trustworthiness.md`.
-- Goal: execute the v1 engine trustworthiness plan slice by slice. Slices 0,
-  0.5, 1-7 complete and merged to `dev` (24 commits, 165 tests + 3 xfails
-  green). Slice 8 (Landscape Report) gate PASSED via probe
-  (`docs/superpowers/specs/2026-08-07-landscape-probe-results.md`) — next up.
-- Gate: `./scripts/verify.sh` after every slice; merge each slice to `dev`
-  (ff) with a git-log check for missed commits.
+- Branch: `dev` (integration). The v1 engine trustworthiness plan
+  (`docs/superpowers/plans/2026-08-06-v1-engine-trustworthiness.md`) is
+  COMPLETE — all slices 0-8 executed and merged (33 commits).
+- Next: user decision on the following phase — product-sequence step 2
+  (bounded schema-change/drift checks) vs portfolio/marketing work vs
+  something else.
+- Gate: `./scripts/verify.sh` (230 passed + 3 xfails on `dev`).
 
 ## Evidence
 
-- Slices 0-7 executed with subagent-driven development: every task passed a
-  task review; the shared acceptance suite (Task 7.1) found DuckDB fails the
-  real-engine tier on 1.5.5 (get_tables 6-column SHOW ALL TABLES, unfiltered
-  internal views, sqlite-extension FK non-materialization) — DuckDB is
-  therefore NOT v1-qualified; **v1-supported connectors today = sqlite only**
-  (PRODUCT.md:55-57).
+- The full plan executed with subagent-driven development: every task passed
+  a task review; two final whole-branch reviews (slices 0-7, slice 8) both
+  passed after fix waves. The shared acceptance suite found DuckDB fails the
+  real-engine tier on 1.5.5 — v1-supported connectors = sqlite only
+  (PRODUCT.md:55-57); DuckDB qualification tracked as deferred.
+- The Landscape Report (Slice 8) shipped as a gated feature: deterministic
+  grouping (192 tables → 48 groups on the legacy fixture), FK-centrality
+  hubs, relationship map; optional `--landscape-hints` with disclosure and
+  draft framing.
 - The user approved the v1 engine plan on 2026-08-07, including the added
   Slice 0.5 (Fixture Workshop) and gated Slice 8 (Landscape Report).
 - User research (docs/superpowers/specs/2026-08-07-db-orientation-problem-research.md)
@@ -28,13 +30,7 @@
   it as a north-star replacement; PRODUCT.md's promise (A) is unchanged.
 - The user approved `docs/PRODUCT.md` as the active product contract on
   2026-08-06, completing the `docs/v1-product-contract` workstream.
-- A four-track source audit against the contract found: read-only enforcement
-  missing on 4/5 connectors, no pre-LLM disclosure, non-atomic writer writes,
-  no change classification, no review loop for `db`, and no shared connector
-  acceptance suite. Audit evidence is embedded in the plan document.
 - Local foundation gate passed on 2026-08-06 with Python 3.12.13.
-- `./scripts/verify.sh` passed 72 tests, built the sdist and wheel, exercised
-  CLI help without provider calls, and validated the OpenCode instruction link.
 - GitHub Actions remains unverified until the branch is pushed.
 - Repository transfer remains pending and user-owned.
 
