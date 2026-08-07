@@ -96,6 +96,22 @@ class GoogleGenAIClient(BaseLLMClient):
                 config={"max_output_tokens": max_tokens},
             )
             if response.text is None:
+                # Reasoning models (e.g. gemma-4-26b) emit a thought part
+                # whose length varies per prompt; when thought + answer
+                # exceed the budget the answer part never starts. Retry once
+                # with a doubled budget before giving up (verified live
+                # 2026-08-07: identical prompts returned thought-only at
+                # 200 tokens and thought+answer at 512).
+                logger.warning(
+                    "Google GenAI returned no text; retrying with doubled "
+                    "output budget."
+                )
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config={"max_output_tokens": max_tokens * 2},
+                )
+            if response.text is None:
                 raise LLMClientError(
                     "Google GenAI returned no text for this request "
                     "(the model may have exhausted its output budget on "

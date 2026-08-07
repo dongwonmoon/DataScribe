@@ -68,3 +68,46 @@ def test_google_client_empty_response_raises_llm_error(mock_genai, mocker):
     client = GoogleGenAIClient(model="gemini-test")
     with pytest.raises(LLMClientError, match="returned no text"):
         client.get_description("test prompt", 50)
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+def test_google_client_retries_once_with_doubled_budget(mock_genai, mocker):
+    """Thought-only responses retry once with a doubled output budget."""
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    mock_client = MagicMock()
+    first = MagicMock()
+    first.text = None
+    second = MagicMock()
+    second.text = "retried answer"
+    mock_client.models.generate_content.side_effect = [first, second]
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    description = client.get_description("test prompt", 100)
+
+    assert description == "retried answer"
+    calls = mock_client.models.generate_content.call_args_list
+    assert calls[0].kwargs["config"] == {"max_output_tokens": 100}
+    assert calls[1].kwargs["config"] == {"max_output_tokens": 200}
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+def test_google_client_retry_still_empty_raises(mock_genai, mocker):
+    """Two empty responses in a row still raise LLMClientError."""
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    mock_client = MagicMock()
+    empty = MagicMock()
+    empty.text = None
+    mock_client.models.generate_content.return_value = empty
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    with pytest.raises(LLMClientError, match="returned no text"):
+        client.get_description("test prompt", 50)
+    assert mock_client.models.generate_content.call_count == 2
