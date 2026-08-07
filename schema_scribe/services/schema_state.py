@@ -12,7 +12,7 @@ import os
 import stat
 import tempfile
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class SchemaState:
@@ -94,3 +94,44 @@ class SchemaState:
                 return json.load(f)
         except (OSError, ValueError):
             return None
+
+    @staticmethod
+    def classify(
+        prev: Optional[Dict[str, Any]], curr: Dict[str, Any]
+    ) -> Dict[str, List[str]]:
+        """
+        Classifies tables as added, removed, or structurally changed
+        against the previous snapshot. `prev=None` (no baseline) marks
+        every table as added.
+
+        A table is structurally changed when its column map
+        ({col: type} — a type change or a column added/removed), its PK
+        set, or its FK set (compared as (source, target) pairs, so a
+        changed FK target counts) differs. Unchanged tables appear in
+        neither list. All lists are returned in sorted order.
+        """
+        if prev is None:
+            return {
+                "added": sorted(curr["tables"]),
+                "removed": [],
+                "structurally_changed": [],
+            }
+        prev_names = set(prev["tables"])
+        curr_names = set(curr["tables"])
+        changed = []
+        for name in sorted(prev_names & curr_names):
+            prev_table = prev["tables"][name]
+            curr_table = curr["tables"][name]
+            prev_fks = sorted((fk["source"], fk["target"]) for fk in prev_table["fks"])
+            curr_fks = sorted((fk["source"], fk["target"]) for fk in curr_table["fks"])
+            if (
+                prev_table["columns"] != curr_table["columns"]
+                or sorted(prev_table["pk"]) != sorted(curr_table["pk"])
+                or prev_fks != curr_fks
+            ):
+                changed.append(name)
+        return {
+            "added": sorted(curr_names - prev_names),
+            "removed": sorted(prev_names - curr_names),
+            "structurally_changed": changed,
+        }
