@@ -9,6 +9,7 @@ to produce a data catalog from a database.
 import json
 import logging
 import pytest
+import typer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -886,3 +887,239 @@ def test_db_command_check_exits_0_when_up_to_date(monkeypatch, tmp_path):
     )
     result = CliRunner().invoke(app, ["db", "--check", "--config", "fake.yaml"])
     assert result.exit_code == 0
+
+
+def _interactive_connector():
+    """
+    Minimal connector mock for interactive tests: one table 'users' with
+    two columns, no views, no foreign keys.
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = ["users"]
+    connector.get_columns.return_value = [
+        {"name": "id", "type": "INTEGER", "is_pk": True},
+        {"name": "email", "type": "VARCHAR", "is_pk": False},
+    ]
+    connector.get_views.return_value = []
+    connector.get_foreign_keys.return_value = []
+    connector.get_column_profile.return_value = {
+        "total_count": 0,
+        "null_count": 0,
+        "distinct_count": 0,
+        "is_unique": True,
+    }
+    connector.close.return_value = None
+    return connector
+
+
+def _interactive_llm():
+    """
+    Minimal LLM mock for interactive tests: one summary draft and one
+    description draft per asset, in generation order (table summary then
+    its columns).
+    """
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.side_effect = ["sum draft", "col draft", "col2 draft"]
+    return llm
+
+
+def test_interactive_applies_edits_and_drops_rejects(monkeypatch):
+    """
+    The review loop prompts once per table summary and once per column
+    description (table first, then its columns): 'accept' keeps the draft,
+    'edit:VALUE' replaces it, 'reject' empties it — the 'description' key
+    is never removed.
+    """
+    writer = MagicMock(spec=BaseWriter)
+    wf = DbWorkflow(
+        _interactive_connector(), _interactive_llm(), writer, db_profile_name="d"
+    )
+    answers = iter(["accept", "edit:NEW DESC", "reject"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
+    wf.run_interactive()
+
+    catalog = writer.write.call_args.args[0]
+    table = catalog["tables"][0]
+    cols = table["columns"]
+    assert table["ai_summary"] == "sum draft"  # accepted
+    assert cols[0]["description"] == "NEW DESC"  # edited
+    assert cols[1]["description"] == ""  # rejected
+    assert "description" in cols[1]  # key never removed
+    writer.write.assert_called_once()
+    wf.db_connector.close.assert_called_once()
+
+
+def test_interactive_table_reject_empties_summary(monkeypatch):
+    """
+    A rejected table summary becomes an empty string (same reject
+    semantics as column descriptions).
+    """
+    writer = MagicMock(spec=BaseWriter)
+    wf = DbWorkflow(
+        _interactive_connector(), _interactive_llm(), writer, db_profile_name="d"
+    )
+    answers = iter(["reject", "accept", "accept"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
+    wf.run_interactive()
+
+    catalog = writer.write.call_args.args[0]
+    table = catalog["tables"][0]
+    assert table["ai_summary"] == ""
+    assert table["columns"][0]["description"] == "col draft"
+    assert table["columns"][1]["description"] == "col2 draft"
+
+
+def test_interactive_reprompts_on_unrecognized_input(monkeypatch):
+    """
+    An unrecognized answer does not count as accept or edit: the user is
+    re-prompted until a recognized command is given.
+    """
+    writer = MagicMock(spec=BaseWriter)
+    wf = DbWorkflow(
+        _interactive_connector(), _interactive_llm(), writer, db_profile_name="d"
+    )
+    answers = iter(["accept", "maybe?", "reject", "reject"])
+    prompt_calls = []
+    monkeypatch.setattr(
+        typer, "prompt", lambda *a, **k: (prompt_calls.append(a), next(answers))[1]
+    )
+    wf.run_interactive()
+
+    catalog = writer.write.call_args.args[0]
+    table = catalog["tables"][0]
+    assert table["ai_summary"] == "sum draft"
+    assert table["columns"][0]["description"] == ""  # rejected after re-prompt
+    assert table["columns"][1]["description"] == ""
+    assert len(prompt_calls) == 4  # table + column + re-prompt + second column
+
+
+def test_interactive_without_writer_reviews_then_skips_write(monkeypatch):
+    """
+    Without a writer, run_interactive still reviews but writes nothing and
+    closes the connection.
+    """
+    wf = DbWorkflow(
+        _interactive_connector(), _interactive_llm(), writer=None, db_profile_name="d"
+    )
+    answers = iter(["reject", "reject", "reject"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
+    wf.run_interactive()
+    wf.db_connector.close.assert_called_once()
+
+
+def test_interactive_writes_sidecar_after_write(tmp_path, monkeypatch):
+    """
+    Like run(), a successful interactive run persists the schema state
+    sidecar next to the output file so the next --check has a fresh
+    baseline.
+    """
+    import json
+
+    output = tmp_path / "catalog.md"
+    writer = MagicMock(spec=BaseWriter)
+    wf = DbWorkflow(
+        _interactive_connector(),
+        _interactive_llm(),
+        writer,
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    answers = iter(["accept", "accept", "accept"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
+    wf.run_interactive()
+
+    sidecar = tmp_path / "catalog.md.schema-state.json"
+    assert sidecar.exists()
+    state = json.loads(sidecar.read_text())
+    assert state["tables"]["users"]["columns"] == {
+        "id": "INTEGER",
+        "email": "VARCHAR",
+    }
+
+
+def test_db_command_interactive_and_check_mutually_exclusive():
+    """
+    --interactive and --check are mutually exclusive and rejected before
+    any configuration work happens.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    result = CliRunner().invoke(app, ["db", "--interactive", "--check"])
+    assert result.exit_code == 1
+    assert "--check and --interactive are mutually exclusive" in result.output
+
+
+def test_db_command_interactive_and_dry_run_mutually_exclusive():
+    """
+    --interactive and --dry-run are mutually exclusive and rejected before
+    any configuration work happens.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    result = CliRunner().invoke(app, ["db", "--interactive", "--dry-run"])
+    assert result.exit_code == 1
+    assert "--interactive and --dry-run are mutually exclusive" in result.output
+
+
+def test_db_command_interactive_writes_reviewed_catalog(monkeypatch, tmp_path):
+    """
+    `db --interactive` reaches run_interactive: the reviewed catalog (with
+    rejections applied) is what the writer receives, and the command exits
+    0.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    output_path = tmp_path / "catalog.md"
+    written = {}
+
+    class FakeConfigManager:
+        def __init__(self, config_path):
+            self.config_path = config_path
+
+        def get_db_connector(self, cli_profile):
+            connector = MagicMock(spec=BaseConnector)
+            connector.get_tables.return_value = ["users"]
+            connector.get_columns.return_value = [
+                {"name": "id", "type": "INTEGER", "is_pk": True}
+            ]
+            connector.get_views.return_value = []
+            connector.get_foreign_keys.return_value = []
+            connector.get_column_profile.return_value = {
+                "total_count": 0,
+                "null_count": 0,
+                "distinct_count": 0,
+                "is_unique": True,
+            }
+            connector.close.return_value = None
+            return connector, "d"
+
+        def get_llm_client(self, cli_profile):
+            llm = MagicMock(spec=BaseLLMClient)
+            llm.get_description.side_effect = ["sum draft", "col draft"]
+            return llm, "test_llm"
+
+        def get_writer(self, cli_profile):
+            writer = MagicMock(spec=BaseWriter)
+            writer.write.side_effect = lambda catalog, **kw: written.update(
+                catalog=catalog
+            )
+            return writer, "test_markdown_output", {
+                "output_filename": str(output_path)
+            }
+
+    monkeypatch.setattr("schema_scribe.app.ConfigManager", FakeConfigManager)
+    answers = iter(["reject", "edit:CLI EDIT"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
+    result = CliRunner().invoke(app, ["db", "--interactive", "--config", "fake.yaml"])
+    assert result.exit_code == 0
+    assert written["catalog"]["tables"][0]["ai_summary"] == ""
+    assert (
+        written["catalog"]["tables"][0]["columns"][0]["description"]
+        == "CLI EDIT"
+    )

@@ -336,6 +336,13 @@ def scan_db(
         help="Run in CI check mode. Fails (exit 1) if the schema "
         "documentation is outdated or missing.",
     ),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        help="Run in interactive mode. Prompts the user to accept, edit, "
+        "or reject each AI-generated summary and description before "
+        "writing.",
+    ),
 ):
     """
     Scans a database, generates documentation, and writes it to an output.
@@ -347,6 +354,20 @@ def scan_db(
     if check and dry_run:
         typer.echo(
             "Error: --check and --dry-run are mutually exclusive.", err=True
+        )
+        raise typer.Exit(code=1)
+
+    if interactive and dry_run:
+        typer.echo(
+            "Error: --interactive and --dry-run are mutually exclusive.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if check and interactive:
+        typer.echo(
+            "Error: --check and --interactive are mutually exclusive.",
+            err=True,
         )
         raise typer.Exit(code=1)
 
@@ -388,6 +409,20 @@ def scan_db(
             logger.error("CI CHECK FAILED: schema documentation is outdated.")
             raise typer.Exit(code=1)
         logger.info("CI CHECK PASSED: schema documentation is up-to-date.")
+        return
+
+    if interactive:
+        writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+        workflow = DbWorkflow(
+            db_connector=db_connector,
+            llm_client=llm_client,
+            writer=writer,
+            db_profile_name=db_name,
+            output_profile_name=out_name,
+            writer_params=writer_params,
+            provider_name=llm_profile,
+        )
+        workflow.run_interactive()
         return
 
     writer, out_name, writer_params = cfg_manager.get_writer(output_profile)

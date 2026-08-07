@@ -308,23 +308,131 @@ class DbWorkflow:
             self.writer.write(catalog, **writer_kwargs)
             logger.info("Catalog written successfully.")
 
-            output_filename = self.writer_params.get("output_filename")
-            if output_filename:
-                try:
-                    sidecar_path = f"{output_filename}.schema-state.json"
-                    SchemaState.save(
-                        SchemaState.snapshot(catalog), sidecar_path
-                    )
-                    logger.info(
-                        f"Schema state sidecar saved to '{sidecar_path}'."
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to save schema state sidecar: {e}"
-                    )
+            self._save_sidecar(catalog)
 
         except (KeyError, ValueError, IOError) as e:
             logger.error(
                 f"Failed to write catalog using profile '{self.output_profile_name}': {e}"
+            )
+            raise typer.Exit(code=1)
+
+    def _save_sidecar(self, catalog: Dict[str, Any]) -> None:
+        """
+        Persists the schema state snapshot next to the output file after a
+        successful write. Bookkeeping: a failure logs a warning and never
+        fails the run.
+        """
+        output_filename = self.writer_params.get("output_filename")
+        if output_filename:
+            try:
+                sidecar_path = f"{output_filename}.schema-state.json"
+                SchemaState.save(
+                    SchemaState.snapshot(catalog), sidecar_path
+                )
+                logger.info(
+                    f"Schema state sidecar saved to '{sidecar_path}'."
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to save schema state sidecar: {e}"
+                )
+
+    def _prompt_review(
+        self, key: str, node_label: str, ai_value: str
+    ) -> str:
+        """
+        Prompts the user to accept, edit, or reject an AI-generated value
+        (a table summary or a column description).
+
+        Commands: 'accept' keeps the draft, 'edit:<text>' replaces it,
+        'reject' empties it. Any other input re-prompts.
+        """
+        while True:
+            typer.echo(
+                typer.style(
+                    f"Suggestion for '{key}' on {node_label}:",
+                    fg=typer.colors.CYAN,
+                )
+            )
+            typer.echo(
+                typer.style(f'  AI: "{ai_value}"', fg=typer.colors.GREEN)
+            )
+            answer = typer.prompt(
+                "  [accept] to keep, [edit:NEW TEXT] to replace, "
+                "[reject] to drop"
+            )
+            command = answer.strip().lower()
+            if command == "accept":
+                return ai_value
+            if command == "reject":
+                return ""
+            if command.startswith("edit:"):
+                return answer.strip()[5:].lstrip()
+            logger.warning(
+                f"Unrecognized review input '{answer}' — expected "
+                "accept, edit:<text>, or reject."
+            )
+
+    def run_interactive(self):
+        """
+        Generates the catalog, then prompts the user to accept, edit, or
+        reject each table summary and each column description before
+        writing the reviewed catalog via the configured writer.
+
+        Reject semantics (plan-mandated): a rejected value becomes an
+        empty string — the 'description' key is never removed, because
+        MarkdownWriter hard-indexes `column['description']` and removal
+        would raise KeyError mid-write. View summaries are not reviewed:
+        the review loop covers table summaries and column descriptions
+        only. The schema state sidecar is saved like a regular run so the
+        next --check compares against the reviewed baseline.
+        """
+        catalog = None
+        try:
+            # 1. Generate the catalog data (closes connection internally)
+            catalog = self.generate_catalog()
+
+            # 2. Review each table summary, then its column descriptions
+            for table in catalog["tables"]:
+                table["ai_summary"] = self._prompt_review(
+                    "ai_summary",
+                    f"table '{table['name']}'",
+                    table["ai_summary"],
+                )
+                for column in table["columns"]:
+                    column["description"] = self._prompt_review(
+                        "description",
+                        f"column '{table['name']}.{column['name']}'",
+                        column["description"],
+                    )
+
+            # 3. Execute writer (if injected)
+            if not self.writer:
+                logger.info(
+                    "Catalog generated. No --output profile specified, "
+                    "not writing."
+                )
+                return
+
+            logger.info(
+                f"Writing catalog using output profile: "
+                f"'{self.output_profile_name}'"
+            )
+
+            writer_kwargs = {
+                "db_profile_name": self.db_profile_name,
+                "db_connector": self.db_connector,
+                **self.writer_params,
+            }
+
+            self.writer.write(catalog, **writer_kwargs)
+            logger.info("Catalog written successfully.")
+
+            self._save_sidecar(catalog)
+
+        except (KeyError, ValueError, IOError) as e:
+            logger.error(
+                f"Failed to write catalog using profile "
+                f"'{self.output_profile_name}': {e}"
             )
             raise typer.Exit(code=1)
