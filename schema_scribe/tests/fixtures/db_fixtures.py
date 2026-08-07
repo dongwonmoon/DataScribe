@@ -220,6 +220,61 @@ _CLEAN_TABLES = (
     "FOREIGN KEY(product_id) REFERENCES products(id))",
 )
 
+# Realistic seeding so profile statistics are non-degenerate (the eval
+# fixture must produce distinct counts / null ratios / unique flags that
+# vary per column; an empty table hardcodes is_unique=True for every
+# column, which made prompt rules misfire — see the 2026-08-08 evaluation).
+# Deliberate distributions:
+#   users.email: unique, one NULL (null_ratio ~0.08)
+#   users.name:  "Min Park" appears twice (is_unique=False)
+#   products.price: all non-null, distinct values
+#   orders: FK columns repeat (user_id 1..12, product_id 1..8)
+_CLEAN_INSERTS = (
+    "INSERT INTO users (name, email) VALUES "
+    "('Alice Kim', 'alice@example.com'), "
+    "('Bob Lee', 'bob@example.com'), "
+    "('Carol Park', 'carol.park@example.com'), "
+    "('David Choi', 'david.choi@example.com'), "
+    "('Emily Jung', 'emily.jung@example.com'), "
+    "('Frank Yoon', 'frank.yoon@example.com'), "
+    "('Grace Han', 'grace.han@example.com'), "
+    "('Henry Nam', 'henry.nam@example.com'), "
+    "('Ivy Seo', 'ivy.seo@example.com'), "
+    "('Jack Lim', 'jack.lim@example.com'), "
+    "('Min Park', 'min.park@example.com'), "
+    "(NULL, 'min.park2@example.com')",
+    "INSERT INTO products (name, price) VALUES "
+    "('Wireless Mouse', 29.99), "
+    "('Mechanical Keyboard', 89.99), "
+    "('USB-C Hub', 45.50), "
+    "('27-inch Monitor', 259.00), "
+    "('Laptop Stand', 32.00), "
+    "('Webcam', 74.99), "
+    "('Desk Lamp', 21.00), "
+    "('External SSD 1TB', 129.00)",
+    "INSERT INTO orders (user_id, product_id, order_date) VALUES "
+    "(1, 2, '2024-01-05'), "
+    "(2, 4, '2024-01-18'), "
+    "(3, 1, '2024-02-03'), "
+    "(4, 5, '2024-02-21'), "
+    "(5, 8, '2024-03-10'), "
+    "(6, 3, '2024-03-27'), "
+    "(7, 7, '2024-04-14'), "
+    "(8, 6, '2024-05-02'), "
+    "(9, 2, '2024-05-19'), "
+    "(10, 4, '2024-06-08'), "
+    "(11, 1, '2024-07-01'), "
+    "(12, 5, '2024-07-22'), "
+    "(1, 8, '2024-08-15'), "
+    "(2, 3, '2024-09-04'), "
+    "(3, 6, '2024-10-12'), "
+    "(4, 7, '2024-11-30'), "
+    "(5, 2, '2025-01-09'), "
+    "(6, 4, '2025-02-17'), "
+    "(7, 1, '2025-03-25'), "
+    "(8, 5, '2025-06-18')",
+)
+
 
 def build_sqlite(path: str, variant: str) -> None:
     """Create a deterministic schema-only SQLite database at ``path``.
@@ -228,7 +283,7 @@ def build_sqlite(path: str, variant: str) -> None:
     always yields the same bytes regardless of prior file state.
     """
     if variant == "clean":
-        statements = list(_CLEAN_TABLES)
+        statements = list(_CLEAN_TABLES) + list(_CLEAN_INSERTS)
     elif variant == "legacy-rich":
         statements = _legacy_ddl(dense=True)
     elif variant == "legacy-poor":

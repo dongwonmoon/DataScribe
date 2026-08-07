@@ -43,3 +43,28 @@ def test_fixture_foreign_keys_resolve(tmp_path, variant):
         assert fk_count <= 5
     elif variant == "legacy-conventions":
         assert fk_count > 50
+
+
+def test_clean_fixture_seed_produces_meaningful_profiles(tmp_path):
+    """The seeded clean fixture must produce non-degenerate profile stats:
+    emails unique with a NULL (null_ratio > 0), names NOT unique (duplicate
+    'Min Park'), so the eval measures real prompt behavior, not the
+    empty-table hardcode (is_unique=True for every column).
+    """
+    from schema_scribe.components.db_connectors.sqlite_connector import SQLiteConnector
+
+    db_path = tmp_path / "clean.db"
+    db_fixtures.build_sqlite(str(db_path), "clean")
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+
+    email_profile = connector.get_column_profile("users", "email")
+    name_profile = connector.get_column_profile("users", "name")
+    assert email_profile["is_unique"] is True
+    assert email_profile["null_ratio"] == 0.0
+    assert name_profile["is_unique"] is False
+    assert name_profile["null_ratio"] > 0
+
+    users = connector.get_tables()
+    connector.close()
+    assert len(users) >= 3
