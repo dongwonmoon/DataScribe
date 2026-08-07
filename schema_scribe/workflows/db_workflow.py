@@ -64,20 +64,37 @@ class DbWorkflow:
         self.writer_params = writer_params or {}
         self.provider_name = provider_name
 
-    def dry_run(self) -> None:
+    @staticmethod
+    def _format_profile_value(value: Any) -> str:
+        """
+        Formats a profile stat value the way the prompt formatter would
+        show it: raw value, "N/A" when None, lowercase for booleans.
+        """
+        if value is None:
+            return "N/A"
+        if isinstance(value, bool):
+            return str(value).lower()
+        return str(value)
+
+    def dry_run(self, full: bool = False) -> None:
         """
         Prints a disclosure manifest of everything a real run would send to
-        the LLM, without constructing the LLM client, profiling any column,
-        or writing any output.
+        the LLM, without constructing the LLM client or writing any output.
 
-        The manifest lists the profile, provider, tables, per-table columns
-        (name: type), verbatim view SQL, foreign key count, and the column
-        aggregate stats that would be included.
+        By default (compact) no profiling is performed: the manifest lists
+        the profile, provider, per-table lines (table name, column count,
+        column name: type), verbatim view SQL, foreign key count, and a note
+        that per-column aggregate stats are computed at run time. With
+        ``full=True`` the per-column profile stat values are computed and
+        printed as one line per column (grouped by table).
         """
         try:
             tables = self.db_connector.get_tables()
             views = self.db_connector.get_views()
             foreign_keys = self.db_connector.get_foreign_keys()
+            columns_by_table = {
+                table: self.db_connector.get_columns(table) for table in tables
+            }
 
             print("=" * 72)
             print("DRY RUN — Disclosure manifest (no LLM call will be made)")
@@ -86,18 +103,36 @@ class DbWorkflow:
             print(f"LLM provider : {self.provider_name or 'unknown'}")
             print(f"Tables ({len(tables)}):")
             for table in tables:
-                print(f"  {table}")
-                for column in self.db_connector.get_columns(table):
+                columns = columns_by_table[table]
+                print(f"  {table} ({len(columns)} columns)")
+                for column in columns:
                     print(f"    {column['name']}: {column['type']}")
             print(f"Views ({len(views)}):")
             for view in views:
                 print(f"  {view['name']}")
                 print(f"    {view['definition']}")
             print(f"Foreign keys: {len(foreign_keys)}")
-            print(
-                "Per-column aggregate stats (null_ratio, distinct_count, "
-                "is_unique) will be included"
-            )
+            if full:
+                print(
+                    "Per-column aggregate stats "
+                    "(null_ratio, distinct_count, is_unique):"
+                )
+                for table in tables:
+                    for column in columns_by_table[table]:
+                        profile = self.db_connector.get_column_profile(
+                            table, column["name"]
+                        )
+                        print(
+                            f"  {table}.{column['name']}: "
+                            f"null_ratio={self._format_profile_value(profile.get('null_ratio'))}  "
+                            f"distinct={self._format_profile_value(profile.get('distinct_count'))}  "
+                            f"unique={self._format_profile_value(profile.get('is_unique'))}"
+                        )
+            else:
+                print(
+                    "Per-column aggregate stats (null_ratio, distinct_count, "
+                    "is_unique) computed at run time"
+                )
         finally:
             logger.info(f"Closing DB connection for {self.db_profile_name}...")
             self.db_connector.close()

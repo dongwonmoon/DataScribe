@@ -312,7 +312,64 @@ def test_dry_run_prints_manifest_without_llm_or_write(capsys):
     assert "0" in out  # FK count disclosed
     assert (
         "Per-column aggregate stats (null_ratio, distinct_count, is_unique) "
-        "will be included" in out
+        "computed at run time" in out
     )
     connector.get_column_profile.assert_not_called()
     connector.close.assert_called_once()
+
+
+def test_dry_run_full_prints_profile_values(capsys):
+    """
+    With full=True a dry run must ALSO compute and print per-column profile
+    stat values (one line per column, N/A for None), while still disclosing
+    the view SQL verbatim, writing nothing, and calling no LLM.
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = ["users"]
+    connector.get_columns.return_value = [
+        {"name": "id", "type": "INTEGER"},
+        {"name": "email", "type": "TEXT"},
+    ]
+    connector.get_views.return_value = [
+        {
+            "name": "v_active",
+            "definition": (
+                "CREATE VIEW v_active AS SELECT id FROM users WHERE status = 'paid'"
+            ),
+        }
+    ]
+    connector.get_foreign_keys.return_value = []
+    connector.get_column_profile.side_effect = [
+        {"null_ratio": 0.0, "distinct_count": 1044, "is_unique": True},
+        {"null_ratio": None, "distinct_count": None, "is_unique": None},
+    ]
+
+    wf = DbWorkflow(
+        connector,
+        llm_client=None,
+        writer=None,
+        db_profile_name="mydb",
+        provider_name="ollama",
+    )
+    wf.dry_run(full=True)
+
+    out = capsys.readouterr().out
+    assert "users.id: null_ratio=0.0  distinct=1044  unique=true" in out
+    assert "users.email: null_ratio=N/A  distinct=N/A  unique=N/A" in out
+    assert "status = 'paid'" in out  # view SQL still disclosed verbatim
+    assert connector.get_column_profile.call_count == 2  # once per column
+    connector.close.assert_called_once()
+
+
+def test_db_command_full_without_dry_run_errors():
+    """
+    The --full flag is meaningless without --dry-run and must be rejected
+    before any configuration or connection work happens.
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+
+    result = CliRunner().invoke(app, ["db", "--full"])
+    assert result.exit_code == 1
+    assert "--full requires --dry-run" in result.output

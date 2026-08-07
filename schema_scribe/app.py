@@ -325,10 +325,19 @@ def scan_db(
         help="Print a disclosure manifest of what would be sent to the LLM "
         "without calling it or writing output.",
     ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Include per-column profile stat values (requires --dry-run).",
+    ),
 ):
     """
     Scans a database, generates documentation, and writes it to an output.
     """
+    if full and not dry_run:
+        typer.echo("Error: --full requires --dry-run.", err=True)
+        raise typer.Exit(code=1)
+
     # 1. ConfigManager is responsible for component creation
     cfg_manager = ConfigManager(config_path)
 
@@ -345,7 +354,7 @@ def scan_db(
             db_profile_name=db_name,
             provider_name=llm_profile,
         )
-        workflow.dry_run()
+        workflow.dry_run(full=full)
         return
 
     llm_client, _ = cfg_manager.get_llm_client(llm_profile)
