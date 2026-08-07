@@ -20,6 +20,7 @@ import re
 import time
 
 from google import genai
+from google.genai import types
 from schema_scribe.core.interfaces import BaseLLMClient
 from schema_scribe.core.exceptions import LLMClientError, ConfigError
 from schema_scribe.utils.config import settings
@@ -93,33 +94,7 @@ class GoogleGenAIClient(BaseLLMClient):
             logger.info(
                 f"Sending prompt to Google GenAI '{self.model}' model..."
             )
-            response = self._generate_with_quota_retry(prompt, max_tokens)
-            if response.text is None:
-                # Reasoning models (e.g. gemma-4-26b) emit a thought part
-                # whose length varies per prompt; when thought + answer
-                # exceed the budget the answer part never starts. Retry once
-                # with a doubled budget before giving up (verified live
-                # 2026-08-07: identical prompts returned thought-only at
-                # 200 tokens and thought+answer at 512).
-                logger.warning(
-                    "Google GenAI returned no text; retrying with doubled "
-                    "output budget."
-                )
-                response = self._generate_with_quota_retry(
-                    prompt, max_tokens * 2
-                )
-            if response.text is None:
-                raise LLMClientError(
-                    "Google GenAI returned no text for this request "
-                    "(the model may have exhausted its output budget on "
-                    "thinking tokens)."
-                )
-            description = response.text.strip()
-            if not description:
-                raise LLMClientError(
-                    "Google GenAI returned an empty description for this "
-                    "request."
-                )
+            description = self._generate_with_budget_ladder(prompt, max_tokens)
             logger.info("Response received from Google GenAI.")
             return description
         except Exception as e:
@@ -128,6 +103,46 @@ class GoogleGenAIClient(BaseLLMClient):
                 exc_info=True,
             )
             raise LLMClientError(f"Google GenAI API call failed: {e}") from e
+
+    def _generate_with_budget_ladder(self, prompt: str, max_tokens: int) -> str:
+        """Generates a description, escalating the output budget on failure.
+
+        Reasoning models (e.g. gemma-4-26b) emit a thought part whose length
+        varies per prompt. Two failure modes were measured live on
+        2026-08-08 (10-column sweep): thought-only responses (text None) at
+        512 tokens, and TRUNCATED answers (text present, finish_reason
+        MAX_TOKENS — e.g. "A" for "A unique identifier...") which a text-only
+        check would silently accept. Both escalate through [base, 2x, 4x];
+        anything else with text is accepted, and a STOP finish with empty
+        text raises.
+        """
+        budgets = [max_tokens, max_tokens * 2, max_tokens * 4]
+        for budget in budgets:
+            response = self._generate_with_quota_retry(prompt, budget)
+            text = response.text
+            truncated = (
+                response.candidates[0].finish_reason
+                == types.FinishReason.MAX_TOKENS
+            )
+            if text is None or truncated:
+                logger.warning(
+                    f"Google GenAI incomplete response "
+                    f"(text={'none' if text is None else 'truncated'}); "
+                    f"retrying with budget {budget * 2}."
+                )
+                continue
+            description = text.strip()
+            if not description:
+                raise LLMClientError(
+                    "Google GenAI returned an empty description for this "
+                    "request."
+                )
+            return description
+        raise LLMClientError(
+            "Google GenAI returned no complete text for this request "
+            "after escalating the output budget "
+            f"({budgets[-1]} tokens max)."
+        )
 
     @staticmethod
     def _parse_retry_delay(message: str) -> float:

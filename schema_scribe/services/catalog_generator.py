@@ -202,7 +202,7 @@ class CatalogGenerator:
                 # verbose thought part before the answer; 200 left only the
                 # thought and no answer text (verified live 2026-08-07).
                 description = self.llm_client.get_description(
-                    prompt, max_tokens=512
+                    prompt, max_tokens=1024
                 )
 
                 enriched_columns.append(

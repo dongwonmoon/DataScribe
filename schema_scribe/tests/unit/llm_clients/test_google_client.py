@@ -66,7 +66,7 @@ def test_google_client_empty_response_raises_llm_error(mock_genai, mocker):
     mock_genai.Client.return_value = mock_client
 
     client = GoogleGenAIClient(model="gemini-test")
-    with pytest.raises(LLMClientError, match="returned no text"):
+    with pytest.raises(LLMClientError, match="no complete text"):
         client.get_description("test prompt", 50)
 
 
@@ -96,7 +96,7 @@ def test_google_client_retries_once_with_doubled_budget(mock_genai, mocker):
 
 @patch("schema_scribe.components.llm_clients.google_client.genai")
 def test_google_client_retry_still_empty_raises(mock_genai, mocker):
-    """Two empty responses in a row still raise LLMClientError."""
+    """All ladder budgets returning no text raises LLMClientError."""
     mocker.patch(
         "schema_scribe.components.llm_clients.google_client.settings"
     ).google_api_key = "fake_key"
@@ -108,9 +108,39 @@ def test_google_client_retry_still_empty_raises(mock_genai, mocker):
     mock_genai.Client.return_value = mock_client
 
     client = GoogleGenAIClient(model="gemini-test")
-    with pytest.raises(LLMClientError, match="returned no text"):
+    with pytest.raises(LLMClientError, match="no complete text"):
         client.get_description("test prompt", 50)
-    assert mock_client.models.generate_content.call_count == 2
+    # budgets [50, 100, 200] — the full ladder
+    assert mock_client.models.generate_content.call_count == 3
+
+
+@patch("schema_scribe.components.llm_clients.google_client.genai")
+def test_google_client_truncated_response_escalates(mock_genai, mocker):
+    """MAX_TOKENS finish with partial text must escalate, not accept."""
+    from google.genai import types
+
+    mocker.patch(
+        "schema_scribe.components.llm_clients.google_client.settings"
+    ).google_api_key = "fake_key"
+
+    truncated = MagicMock()
+    truncated.text = "A"  # truncated answer
+    truncated.candidates[0].finish_reason = types.FinishReason.MAX_TOKENS
+    complete = MagicMock()
+    complete.text = "A unique identifier for each user."
+    complete.candidates[0].finish_reason = types.FinishReason.STOP
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [truncated, complete]
+    mock_genai.Client.return_value = mock_client
+
+    client = GoogleGenAIClient(model="gemini-test")
+    description = client.get_description("test prompt", 100)
+
+    assert description == "A unique identifier for each user."
+    budgets = [c.kwargs["config"]["max_output_tokens"]
+               for c in mock_client.models.generate_content.call_args_list]
+    assert budgets == [100, 200]
 
 
 class _QuotaError(Exception):
