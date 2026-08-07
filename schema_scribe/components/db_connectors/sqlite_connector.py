@@ -206,7 +206,8 @@ class SQLiteConnector(BaseConnector):
             column_name: The name of the column to profile.
 
         Returns:
-            A dictionary of statistics, or 'N/A' for stats if profiling fails.
+            A dictionary of statistics, or None values for stats if profiling
+            fails.
         """
         if not self.cursor:
             raise ConnectorError(
@@ -257,9 +258,9 @@ class SQLiteConnector(BaseConnector):
                 f"Could not profile column '{table_name}.{column_name}': {e}"
             )
             return {
-                "null_ratio": "N/A",
-                "distinct_count": "N/A",
-                "is_unique": "N/A",
+                "null_ratio": None,
+                "distinct_count": None,
+                "is_unique": None,
             }
 
     def close(self):

@@ -66,10 +66,13 @@ class CatalogGenerator:
         Returns:
             A formatted string summarizing the column's profile.
         """
+        null_ratio = profile_stats.get("null_ratio")
+        is_unique = profile_stats.get("is_unique")
+        distinct_count = profile_stats.get("distinct_count")
         context_lines = [
-            f"- Null Ratio: {profile_stats.get('null_ratio', 'N/A')} (0.0 = no nulls)",
-            f"- Is Unique: {profile_stats.get('is_unique', 'N/A')}",
-            f"- Distinct Count: {profile_stats.get('distinct_count', 'N/A')}",
+            f"- Null Ratio: {null_ratio if null_ratio is not None else 'N/A'} (0.0 = no nulls)",
+            f"- Is Unique: {is_unique if is_unique is not None else 'N/A'}",
+            f"- Distinct Count: {distinct_count if distinct_count is not None else 'N/A'}",
         ]
         return "\n".join(context_lines)
 

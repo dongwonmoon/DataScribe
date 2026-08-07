@@ -94,6 +94,20 @@ def test_sqlite_connector_profiling(sqlite_db_with_data):
     connector.close()
 
 
+def test_profile_returns_none_on_query_failure(mocker):
+    """
+    Verifies get_column_profile returns None values (not "N/A" strings)
+    when the profiling query fails.
+    """
+    connector = SQLiteConnector()
+    connector.cursor = mocker.MagicMock()
+    connector.cursor.execute.side_effect = sqlite3.Error("boom")
+    profile = connector.get_column_profile("t", "c")
+    assert profile["null_ratio"] is None
+    assert profile["distinct_count"] is None
+    assert profile["is_unique"] is None
+
+
 def test_connection_is_read_only(tmp_path):
     db_path = tmp_path / "ro.db"
     conn = sqlite3.connect(str(db_path))

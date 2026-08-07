@@ -260,9 +260,9 @@ class DuckDBConnector(BaseConnector):
                 f"Could not profile column '{table_name}.{column_name}': {e}"
             )
             return {
-                "null_ratio": "N/A",
-                "distinct_count": "N/A",
-                "is_unique": "N/A",
+                "null_ratio": None,
+                "distinct_count": None,
+                "is_unique": None,
             }
 
     def get_views(self) -> List[Dict[str, str]]:

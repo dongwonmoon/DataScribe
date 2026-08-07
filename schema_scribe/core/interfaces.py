@@ -134,16 +134,14 @@ class BaseConnector(ABC):
             column_name: The name of the column to profile.
 
         Returns:
-            A dictionary of statistics. The exact keys may vary by connector,
-            but should aim to include common metrics like:
+            A dictionary of statistics with exactly these keys:
             {
-                'null_ratio': float,
-                'distinct_count': int,
-                'is_unique': bool,
-                'min': Any,
-                'max': Any,
-                'avg': float
+                'null_ratio': float | None,
+                'distinct_count': int | None,
+                'is_unique': bool | None
             }
+            Each stat is None if profiling fails (rendered as "N/A" in
+            prompts).
         """
         pass
 
