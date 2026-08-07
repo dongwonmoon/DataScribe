@@ -100,13 +100,21 @@ class ConfigManager:
         'ollama'); the profile name is a config key and is not a disclosure
         target. Constructing a client here would violate the dry-run
         contract, which must never perform provider-side work.
+
+        Returns None when no LLM profile is configured (CLI value absent and
+        no default) instead of raising: the LLM-free paths (--dry-run,
+        --landscape) must work with a config that has no llm_providers
+        section, and disclosures render 'unknown' in that case. Paths that
+        actually need a client fail later in get_llm_client.
         """
-        profile_name = self._get_profile_name(cli_profile, "llm")
+        cli_or_default = cli_profile or self.config.get("default", {}).get("llm")
+        if not cli_or_default:
+            return None
         try:
-            return self.config["llm_providers"][profile_name]["provider"]
+            return self.config["llm_providers"][cli_or_default]["provider"]
         except KeyError:
             logger.error(
-                f"LLM profile '{profile_name}' not found in config.yaml."
+                f"LLM profile '{cli_or_default}' not found in config.yaml."
             )
             raise typer.Exit(code=1)
 

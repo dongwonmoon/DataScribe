@@ -1725,3 +1725,34 @@ def test_db_command_run_failing_llm_client_never_opens_connector(monkeypatch):
     result = CliRunner().invoke(app, ["db", "--config", "fake.yaml"])
     assert result.exit_code == 1
     assert order == ["provider", "llm"]
+
+
+def test_landscape_and_dry_run_work_without_llm_config(tmp_path):
+    """
+    Regression lock: LLM-free paths (--landscape, --dry-run) must work with a
+    config that has NO llm_providers section. The slice-8 fix wave made
+    provider-name resolution mandatory in the shared path; a real
+    ConfigManager raises 'Missing profile' for landscape/dry-run, breaking
+    the local-first contract (dry-run exists to preview BEFORE configuring
+    an LLM).
+    """
+    from typer.testing import CliRunner
+
+    from schema_scribe.app import app
+    from schema_scribe.tests.fixtures import db_fixtures
+
+    db_path = tmp_path / "tiny.db"
+    db_fixtures.build_sqlite(str(db_path), "clean")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "default:\n  db: tiny\ndb_connections:\n"
+        f"  tiny:\n    type: sqlite\n    path: {db_path}\n"
+    )
+
+    result = CliRunner().invoke(app, ["db", "--landscape", "--config", str(config)])
+    assert result.exit_code == 0, result.output
+    assert "## Clusters" in result.output
+
+    result = CliRunner().invoke(app, ["db", "--dry-run", "--config", str(config)])
+    assert result.exit_code == 0, result.output
+    assert "tiny" in result.output
