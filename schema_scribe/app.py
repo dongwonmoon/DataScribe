@@ -319,6 +319,12 @@ def scan_db(
         "--output",
         help="The output profile name from config.yaml to use.",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print a disclosure manifest of what would be sent to the LLM "
+        "without calling it or writing output.",
+    ),
 ):
     """
     Scans a database, generates documentation, and writes it to an output.
@@ -328,6 +334,20 @@ def scan_db(
 
     # 2. Pre-create necessary components (dependencies)
     db_connector, db_name = cfg_manager.get_db_connector(db_profile)
+
+    if dry_run:
+        # Never construct the LLM client: OllamaClient.__init__ pulls a model,
+        # which is provider-side work a "dry" run must not perform.
+        workflow = DbWorkflow(
+            db_connector=db_connector,
+            llm_client=None,
+            writer=None,
+            db_profile_name=db_name,
+            provider_name=llm_profile,
+        )
+        workflow.dry_run()
+        return
+
     llm_client, _ = cfg_manager.get_llm_client(llm_profile)
     writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
 

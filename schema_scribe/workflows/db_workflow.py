@@ -35,11 +35,12 @@ class DbWorkflow:
     def __init__(
         self,
         db_connector: BaseConnector,
-        llm_client: BaseLLMClient,
+        llm_client: Optional[BaseLLMClient] = None,
         writer: Optional[BaseWriter] = None,
         db_profile_name: str = "unknown_db",
         output_profile_name: Optional[str] = None,
         writer_params: Optional[dict] = None,
+        provider_name: Optional[str] = None,
     ):
         """
         Initializes the workflow with all required dependencies.
@@ -51,6 +52,9 @@ class DbWorkflow:
             db_profile_name: The name of the DB profile for logging and context.
             output_profile_name: The name of the output profile for logging.
             writer_params: Additional parameters to pass to the writer's `write()` method.
+            provider_name: The name of the LLM provider, disclosed in the dry-run
+                manifest. Not read from the client because a dry run never
+                constructs one.
         """
         self.db_connector = db_connector
         self.llm_client = llm_client
@@ -58,6 +62,45 @@ class DbWorkflow:
         self.db_profile_name = db_profile_name
         self.output_profile_name = output_profile_name
         self.writer_params = writer_params or {}
+        self.provider_name = provider_name
+
+    def dry_run(self) -> None:
+        """
+        Prints a disclosure manifest of everything a real run would send to
+        the LLM, without constructing the LLM client, profiling any column,
+        or writing any output.
+
+        The manifest lists the profile, provider, tables, per-table columns
+        (name: type), verbatim view SQL, foreign key count, and the column
+        aggregate stats that would be included.
+        """
+        try:
+            tables = self.db_connector.get_tables()
+            views = self.db_connector.get_views()
+            foreign_keys = self.db_connector.get_foreign_keys()
+
+            print("=" * 72)
+            print("DRY RUN — Disclosure manifest (no LLM call will be made)")
+            print("=" * 72)
+            print(f"DB profile   : {self.db_profile_name}")
+            print(f"LLM provider : {self.provider_name or 'unknown'}")
+            print(f"Tables ({len(tables)}):")
+            for table in tables:
+                print(f"  {table}")
+                for column in self.db_connector.get_columns(table):
+                    print(f"    {column['name']}: {column['type']}")
+            print(f"Views ({len(views)}):")
+            for view in views:
+                print(f"  {view['name']}")
+                print(f"    {view['definition']}")
+            print(f"Foreign keys: {len(foreign_keys)}")
+            print(
+                "Per-column aggregate stats (null_ratio, distinct_count, "
+                "is_unique) will be included"
+            )
+        finally:
+            logger.info(f"Closing DB connection for {self.db_profile_name}...")
+            self.db_connector.close()
         
     def generate_catalog(self) -> Dict[str, Any]:
         """

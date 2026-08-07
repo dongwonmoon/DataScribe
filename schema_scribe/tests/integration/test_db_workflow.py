@@ -275,3 +275,44 @@ def test_db_workflow_end_to_end_with_profiling(
     # 2 (users) + 3 (products) + 3 (orders) = 8 column calls
     # Total = 12 calls (4 summaries + 8 columns)
     assert mock_llm_client.get_description.call_count == 12
+
+
+def test_dry_run_prints_manifest_without_llm_or_write(capsys):
+    """
+    A dry run must disclose exactly what would be sent to the LLM, without
+    constructing the LLM client, profiling columns, or writing anything.
+    """
+    connector = MagicMock(spec=BaseConnector)
+    connector.get_tables.return_value = ["users"]
+    connector.get_columns.return_value = [{"name": "id", "type": "INTEGER"}]
+    connector.get_views.return_value = [
+        {
+            "name": "v_active",
+            "definition": (
+                "CREATE VIEW v_active AS SELECT id FROM users WHERE status = 'paid'"
+            ),
+        }
+    ]
+    connector.get_foreign_keys.return_value = []
+
+    wf = DbWorkflow(
+        connector,
+        llm_client=None,
+        writer=None,
+        db_profile_name="mydb",
+        provider_name="ollama",
+    )
+    wf.dry_run()
+
+    out = capsys.readouterr().out
+    assert "mydb" in out
+    assert "users" in out and "id" in out
+    assert "v_active" in out and "status = 'paid'" in out  # view SQL disclosed verbatim
+    assert "ollama" in out
+    assert "0" in out  # FK count disclosed
+    assert (
+        "Per-column aggregate stats (null_ratio, distinct_count, is_unique) "
+        "will be included" in out
+    )
+    connector.get_column_profile.assert_not_called()
+    connector.close.assert_called_once()
