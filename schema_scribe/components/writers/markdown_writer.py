@@ -139,8 +139,13 @@ class MarkdownWriter(BaseWriter):
                         )
                         f.write("| :--- | :--- | :--- |\n")
                         for column in table.get("columns", []):
+                            name_cell = (
+                                f"🔑 `{column['name']}`"
+                                if column.get("is_pk", False)
+                                else f"`{column['name']}`"
+                            )
                             f.write(
-                                f"| `{column['name']}` | `{column['type']}` | {column['description']} |\n"
+                                f"| {name_cell} | `{column['type']}` | {column['description']} |\n"
                             )
                         f.write("\n")
             logger.info(f"Successfully wrote catalog to '{output_filename}'.")

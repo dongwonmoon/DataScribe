@@ -27,3 +27,19 @@ def test_real_sqlite_composition(tmp_path):
     wf.run()
     assert out.exists()
     assert "draft description" in out.read_text()
+
+
+def test_catalog_carries_is_pk(tmp_path):
+    db_path = tmp_path / "pk.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+    conn.commit()
+    conn.close()
+    connector = SQLiteConnector()
+    connector.connect({"path": str(db_path)})
+    llm = MagicMock(spec=BaseLLMClient)
+    llm.get_description.return_value = "draft"
+    wf = DbWorkflow(connector, llm, writer=None, db_profile_name="fixture")
+    catalog = wf.generate_catalog()
+    col = catalog["tables"][0]["columns"][0]
+    assert col["name"] == "id" and col["is_pk"] is True

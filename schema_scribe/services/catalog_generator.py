@@ -109,7 +109,8 @@ class CatalogGenerator:
                                 "name": "column_name",
                                 "type": "data_type",
                                 "description": "AI-generated description...",
-                                "profile_stats": { ... }
+                                "profile_stats": { ... },
+                                "is_pk": true
                             },
                             ...
                         ]
@@ -178,6 +179,7 @@ class CatalogGenerator:
                         "type": col_type,
                         "description": description,
                         "profile_stats": profile_stats,
+                        "is_pk": column.get("is_pk", False),
                     }
                 )
             catalog_data["tables"].append(

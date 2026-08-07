@@ -15,7 +15,12 @@ def mock_db_catalog_data():
             {
                 "name": "users",
                 "columns": [
-                    {"name": "id", "type": "INTEGER", "description": "User ID"},
+                    {
+                        "name": "id",
+                        "type": "INTEGER",
+                        "description": "User ID",
+                        "is_pk": True,
+                    },
                     {
                         "name": "email",
                         "type": "TEXT",
@@ -63,5 +68,5 @@ def test_markdown_writer_write(tmp_path, mock_db_catalog_data):
     assert "> A summary of the view." in content
     assert "## 🗂️ Tables" in content
     assert "### 📄 Table: `users`" in content
-    assert "| `id` | `INTEGER` | User ID |" in content
+    assert "| 🔑 `id` | `INTEGER` | User ID |" in content
     assert "| `email` | `TEXT` | User email |" in content
