@@ -63,7 +63,7 @@ def test_markdown_writer_write(tmp_path, mock_db_catalog_data):
 
     assert "# 📁 Data Catalog for test_db" in content
     assert "## 🚀 Entity Relationship Diagram (ERD)" in content
-    assert '"orders" ||--o{ "users"' in content  # Mermaid erDiagram syntax
+    assert '"users" ||--o{ "orders"' in content  # parent (FK target) on the left, one-to-many
     assert "## 🔎 Views" in content
     assert "### 📄 View: `user_views`" in content
     assert "> A summary of the view." in content

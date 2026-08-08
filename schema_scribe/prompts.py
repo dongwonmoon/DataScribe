@@ -29,7 +29,10 @@ Relationship Context:
 
 Instructions:
 1.  Use the Data Profile to make your description more accurate.
-2.  If 'is_unique' is True, mention it (e.g., "Unique ID...").
+2.  If 'is_unique' is True AND the column is not a foreign key, mention it
+    (e.g., "Unique ID..."). Foreign key columns describe the relationship,
+    never uniqueness (a "unique foreign key" is a cardinality claim the
+    schema does not make).
 3.  If 'distinct_count' is low (e.g., < 10) AND the column is NOT unique,
     it's likely a category (e.g., "Status of..."). A low distinct_count on a
     UNIQUE column (e.g., an id or a code) is normal — do not call it a

@@ -58,13 +58,16 @@ class MarkdownWriter(BaseWriter):
 
         code = ["```mermaid", "erDiagram"]
         for fk in foreign_keys:
-            # Mermaid syntax: "users" ||--o{ "orders" : "has"
+            # Mermaid erDiagram: "parent" ||--o{ "child" — one parent, many
+            # children. The FK TARGET is the parent (left side); the FK
+            # holder (source) is the child. Panel-verified 2026-08-09: the
+            # previous order rendered every relationship inverted.
             source_table = fk["source_table"]
             target_table = fk["target_table"]
             source_column = fk["source_column"]
             target_column = fk["target_column"]
             code.append(
-                f'    "{source_table}" ||--o{{ "{target_table}" : "{source_column} to {target_column}"'
+                f'    "{target_table}" ||--o{{ "{source_table}" : "{source_column} to {target_column}"'
             )
         code.append("```")
         return "\n".join(code)

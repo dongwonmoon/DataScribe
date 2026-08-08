@@ -285,8 +285,10 @@ class NotionWriter(BaseWriter):
             source_table = fk["source_table"]
             target_table = fk["target_table"]
             label = f"{fk['source_column']} to {fk['target_column']}"
+            # Mermaid erDiagram: FK target (parent) on the left — see
+            # markdown_writer ERD (panel-verified 2026-08-09).
             code.append(
-                f'    "{source_table}" ||--o{{ "{target_table}" : "{label}"'
+                f'    "{target_table}" ||--o{{ "{source_table}" : "{label}"'
             )
         return "\n".join(code)
 

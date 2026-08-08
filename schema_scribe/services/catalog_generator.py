@@ -187,6 +187,10 @@ class CatalogGenerator:
             table_summary = self.llm_client.get_description(
                 table_prompt, max_tokens=512
             )
+            # The prompt ends with a "Summary:" label that models sometimes
+            # echo into the output — strip it (observed 2026-08-09).
+            if table_summary.startswith("Summary:"):
+                table_summary = table_summary[len("Summary:"):].lstrip()
 
             # For each column, profile it and generate a description using the LLM
             for column in columns:
