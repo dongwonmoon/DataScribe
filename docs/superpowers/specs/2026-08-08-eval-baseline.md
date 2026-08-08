@@ -40,6 +40,14 @@ Fixed: `users.name` → "The full name of the user."; `products.price` →
 "Unique price for each product."; `users.email` stays correct.
 Estimated edit rate ~8%.
 
+**Author verdict (2026-08-09, the official review):** "좀 나아졌다,
+(그러나 실제 데이터 문서를 보고난 뒤) 아직 모자라다" — improved, but
+still short of real-world documentation level. Reference for "real docs":
+dbt-labs/jaffle_shop schema.yml conventions — descriptions carry units
+(AUD/UTC), PII classification, and relationship naming ("Foreign key to
+the customers table"); our prompts encode none of these in the db path
+(the dbt path already asks for PII meta).
+
 ## Findings
 
 1. The empty-fixture artifact invalidated the earlier "too obvious" finding;

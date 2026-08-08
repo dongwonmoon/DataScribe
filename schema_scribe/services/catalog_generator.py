@@ -151,6 +151,20 @@ class CatalogGenerator:
         logger.info("Fetching views...")
         views = self.db_connector.get_views()
 
+        # FKs are fetched here (before the LLM loop) so column prompts can
+        # carry relationship context — eval lever 2, 2026-08-09. This only
+        # reorders an existing call; the catalog's foreign_keys output is
+        # unchanged.
+        logger.info("Fetching foreign keys...")
+        foreign_keys = self.db_connector.get_foreign_keys()
+        fk_lookup = {
+            (fk["source_table"], fk["source_column"]): (
+                fk["target_table"],
+                fk["target_column"],
+            )
+            for fk in foreign_keys
+        }
+
         # --- 2. Disclose the payload before the first LLM call ---
         provider = self.provider_name or "unknown"
         logger.info(
@@ -196,12 +210,20 @@ class CatalogGenerator:
                 sibling_columns = ", ".join(
                     c["name"] for c in columns if c["name"] != col_name
                 )
+                fk_target = fk_lookup.get((table_name, col_name))
+                relationship_context = ""
+                if fk_target:
+                    relationship_context = (
+                        f"Relationship: {col_name} is a foreign key to "
+                        f"{fk_target[0]}.{fk_target[1]}."
+                    )
                 prompt = COLUMN_DESCRIPTION_PROMPT.format(
                     table_name=table_name,
                     col_name=col_name,
                     col_type=col_type,
                     profile_context=profile_context,
                     sibling_columns=sibling_columns,
+                    relationship_context=relationship_context,
                 )
 
                 # 512 (not 200): reasoning models (e.g. gemma-4-26b) emit a
@@ -252,9 +274,6 @@ class CatalogGenerator:
             )
         catalog_data["views"] = enriched_views
 
-        # --- 5. Process Foreign Keys ---
-        logger.info("Fetching foreign keys...")
-        foreign_keys = self.db_connector.get_foreign_keys()
         catalog_data["foreign_keys"] = foreign_keys
 
         logger.info("Catalog generation completed.")
