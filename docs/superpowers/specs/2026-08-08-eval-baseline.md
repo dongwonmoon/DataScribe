@@ -65,3 +65,23 @@ the customers table"); our prompts encode none of these in the db path
 - Pre-registered legacy counterfactual (orientation research gate #2):
   `db` against legacy-rich — the product-level test.
 - Lever 2 (FK context) measured independently before any combination.
+
+## Lever 3 / Rule-Conflict Fix (E3, 2026-08-09)
+
+Root cause found via the legacy counterfactual (gate #2, legacy_sample):
+prompt rules 2 (unique) and 3 (distinct<10 → category) fire together on
+small tables, producing systematic "category" pollution (5/5 columns wrong
+on the sample, e.g. `reg_dt` → "categorical registration period indicator").
+
+Fix: rule 3 now requires "AND the column is NOT unique"; unique columns with
+low distinct counts are explicitly normal.
+
+Results:
+- E3 (seeded clean, gemma-4-26b): **13/13 clean** — E1's 3 hallucinations,
+  E2's moved noise, all gone.
+- legacy_sample re-run (flash-lite): flood cured — 4/5 columns correct
+  (cust_name/reg_dt/id all fixed); 1 residual (`parent_shp_mst_id` →
+  "category ID") is a legitimate rule-3 firing (3 distinct, not unique).
+
+Gate #2 verdict: pending author judgment on the repaired output (does the
+catalog + landscape cure scale/name fear?).
