@@ -85,3 +85,26 @@ Results:
 
 Gate #2 verdict: pending author judgment on the repaired output (does the
 catalog + landscape cure scale/name fear?).
+
+## Gate #2 Verdict (2026-08-09, 3-panel blind)
+
+Panel verdict: **FAIL as run** — with (c) meaningfully cured and (b)
+UNTESTED at scale.
+
+- **Fatal (fixed):** the ERD rendered every FK relationship with inverted
+  parent/child direction (`"{source}" ||--o{ "{target}"` puts the FK holder
+  on the left; Mermaid erDiagram needs the parent left). Deterministic
+  writer bug, pinned by a passing test. Fixed in all three writers
+  (markdown/confluence/notion) — commit 8e68f82.
+- **Fatal (process):** the gate was run on an ad-hoc 6-table sample, not the
+  pre-registered legacy-rich (192 tables) — 6 tables cannot test (b):
+  clustering 6→6, centrality returns every table, and 4-5 rows re-introduce
+  the empty-table uniqueness degeneracy. (b) remains untested at scale;
+  legacy-rich with `--landscape` is the pending run.
+- **Must-fix (fixed):** "unique foreign key" (false cardinality claim) —
+  prompt rule 2 now excludes FK columns; "Summary:" preamble echo stripped.
+- **Must-fix (remaining):** semantic overclaims (SHP stem "shipping",
+  "alphanumeric", inferred "in 2021") — model inference beyond schema;
+  item_cd "category" residual (rule-3 firing on a code column).
+- **Confirmed positive:** MST/HDR/DTL/TRN decoding works — (c) cured at
+  summary level (all 3 panels).
