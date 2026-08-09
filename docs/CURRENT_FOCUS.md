@@ -67,7 +67,9 @@
   2026-08-06, completing the `docs/v1-product-contract` workstream.
 - Local foundation gate passed on 2026-08-06 with Python 3.12.13.
 - GitHub Actions remains unverified until the branch is pushed.
-- Repository transfer remains pending and user-owned.
+- Repository transfer to the `schemascribe` GitHub Organization is COMPLETE
+  (confirmed 2026-08-09: issue URLs resolve under schemascribe/SchemaScribe;
+  `dev` pushed to origin).
 
 ## Known Baseline
 
