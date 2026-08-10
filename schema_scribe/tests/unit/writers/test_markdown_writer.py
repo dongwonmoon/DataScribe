@@ -281,7 +281,7 @@ def test_render_prepends_orientation_summary_when_requested():
     landscape = {
         "scale": {"tables": 1, "columns": 1,
                   "column_types": {"INTEGER": 1}},
-        "core_tables": [("users", 2)],
+        "core_tables": [{"table": "users", "degree": 2}],
         "clusters": {"TBL_USR_MST": ["TBL_USR_MST_2021"], "other": []},
         "relationship_map": {"nodes": ["users"], "edges": []},
     }
@@ -303,3 +303,25 @@ def test_render_without_orientation_unchanged():
     catalog = {"tables": [], "views": [], "foreign_keys": []}
     out = MarkdownWriter().render(catalog, db_profile_name="d")
     assert "Orientation" not in out
+
+
+def test_write_passes_orientation_through(tmp_path):
+    """write() must forward the orientation kwarg to render() — the live
+    --orientation run dropped it (2026-08-10)."""
+    from schema_scribe.components.writers.markdown_writer import MarkdownWriter
+
+    catalog = {"tables": [], "views": [], "foreign_keys": []}
+    landscape = {
+        "scale": {"tables": 0, "columns": 0, "column_types": {}},
+        "core_tables": [],
+        "clusters": {},
+        "relationship_map": {"nodes": [], "edges": []},
+    }
+    target = tmp_path / "catalog.md"
+    MarkdownWriter().write(
+        catalog,
+        output_filename=str(target),
+        db_profile_name="d",
+        orientation=landscape,
+    )
+    assert "## 🧭 Orientation" in target.read_text()

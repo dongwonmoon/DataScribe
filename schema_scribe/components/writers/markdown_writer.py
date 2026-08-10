@@ -214,8 +214,10 @@ class MarkdownWriter(BaseWriter):
         if core_tables:
             lines.append("\n**Core tables (where to start):**\n")
             lines.append("| Rank | Table | Degree |\n| --- | --- | --- |\n")
-            for rank, (table, degree) in enumerate(core_tables, 1):
-                lines.append(f"| {rank} | `{table}` | {degree} |\n")
+            for rank, entry in enumerate(core_tables, 1):
+                lines.append(
+                    f"| {rank} | `{entry['table']}` | {entry['degree']} |\n"
+                )
 
         clusters = landscape.get("clusters", {})
         non_empty = [name for name, members in clusters.items() if members]
@@ -414,7 +416,11 @@ class MarkdownWriter(BaseWriter):
             logger.info(
                 f"Writing data catalog for '{db_profile_name}' to '{output_filename}'."
             )
-            content = self.render(catalog_data, db_profile_name=db_profile_name)
+            content = self.render(
+                catalog_data,
+                db_profile_name=db_profile_name,
+                orientation=kwargs.get("orientation"),
+            )
             self._atomic_write(output_filename, content)
             logger.info(f"Successfully wrote catalog to '{output_filename}'.")
         except IOError as e:
