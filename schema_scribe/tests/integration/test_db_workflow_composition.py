@@ -19,14 +19,16 @@ def test_real_sqlite_composition(tmp_path):
     connector = SQLiteConnector()
     connector.connect({"path": str(db_path)})
     llm = MagicMock(spec=BaseLLMClient)
-    llm.get_description.return_value = "draft description"
+    from schema_scribe.tests.conftest import mock_batch_response
+
+    llm.get_description.side_effect = mock_batch_response
     out = tmp_path / "catalog.md"
     writer = MarkdownWriter()
     wf = DbWorkflow(connector, llm, writer, db_profile_name="fixture",
                     writer_params={"output_filename": str(out)})
     wf.run()
     assert out.exists()
-    assert "draft description" in out.read_text()
+    assert "AI-generated table summary" in out.read_text()
 
     sidecar = tmp_path / "catalog.md.schema-state.json"
     assert sidecar.exists()
@@ -46,7 +48,9 @@ def test_catalog_carries_is_pk(tmp_path):
     connector = SQLiteConnector()
     connector.connect({"path": str(db_path)})
     llm = MagicMock(spec=BaseLLMClient)
-    llm.get_description.return_value = "draft"
+    from schema_scribe.tests.conftest import mock_batch_response
+
+    llm.get_description.side_effect = mock_batch_response
     wf = DbWorkflow(connector, llm, writer=None, db_profile_name="fixture")
     catalog = wf.generate_catalog()
     col = catalog["tables"][0]["columns"][0]

@@ -8,10 +8,12 @@ business-level documentation.
 """
 
 from typing import List, Dict, Any, Optional
+import re
 
 from schema_scribe.core.interfaces import BaseConnector, BaseLLMClient
 from schema_scribe.prompts import (
     COLUMN_DESCRIPTION_PROMPT,
+    TABLE_BATCH_PROMPT,
     VIEW_SUMMARY_PROMPT,
     TABLE_SUMMARY_PROMPT,
 )
@@ -83,6 +85,34 @@ class CatalogGenerator:
             f"- Distinct Count: {distinct_count if distinct_count is not None else 'N/A'}",
         ]
         return "\n".join(context_lines)
+
+    @staticmethod
+    def _parse_batch_response(
+        response: str, column_count: int
+    ) -> tuple[str, List[str]]:
+        """Parses the batched LLM response into (summary, per-column list).
+
+        Contract (TABLE_BATCH_PROMPT): a "SUMMARY:" line plus numbered
+        "N: <description>" lines. Missing column lines fall back to empty
+        strings (drafts — the review loop is the safety net); extra lines
+        are ignored. Model-agnostic: no JSON schema dependency.
+        """
+        summary = ""
+        by_index: Dict[int, str] = {}
+        for line in response.splitlines():
+            stripped = line.strip()
+            if stripped.upper().startswith("SUMMARY:"):
+                summary = stripped[len("SUMMARY:"):].strip()
+                continue
+            match = re.match(r"^(\d+)\s*:\s*(.+)$", stripped)
+            if match:
+                idx = int(match.group(1))
+                if 1 <= idx <= column_count:
+                    by_index[idx] = match.group(2).strip()
+        descriptions = [
+            by_index.get(i, "") for i in range(1, column_count + 1)
+        ]
+        return summary, descriptions
 
     def generate_catalog(
         self, db_profile_name: str
@@ -173,44 +203,23 @@ class CatalogGenerator:
             f"tables={len(tables)}, columns={total_columns}, views={len(views)}."
         )
 
-        # --- 3. Process Tables and Columns ---
+        # --- 3. Process Tables and Columns (batched: one LLM call per table) ---
         for table_name, columns in tables_with_columns:
             logger.info(f"Processing table: {table_name}")
             enriched_columns = []
 
-            logger.info(f"  - Generating summary for table: {table_name}")
-            column_list_str = ", ".join([c["name"] for c in columns])
-
-            table_prompt = TABLE_SUMMARY_PROMPT.format(
-                table_name=table_name, column_list_str=column_list_str
-            )
-            table_summary = self.llm_client.get_description(
-                table_prompt, max_tokens=512
-            )
-            # The prompt ends with a "Summary:" label that models sometimes
-            # echo into the output — strip it (observed 2026-08-09).
-            if table_summary.startswith("Summary:"):
-                table_summary = table_summary[len("Summary:"):].lstrip()
-
-            # For each column, profile it and generate a description using the LLM
+            # 3a. Profile every column first (DB calls unchanged; only the
+            # LLM calls are batched — 13 -> 3 on the clean fixture, the
+            # benchmark baseline, 2026-08-11).
+            profiled = []
             for column in columns:
                 col_name = column["name"]
                 col_type = column["type"]
-
-                # Profile the column to get statistics for better context.
                 logger.info(f"  - Profiling column: {table_name}.{col_name}...")
                 profile_stats = self.db_connector.get_column_profile(
                     table_name, col_name
                 )
                 profile_context = self._format_profile_stats(profile_stats)
-
-                logger.info(
-                    f"  - Generating description for column: {col_name} ({col_type})"
-                )
-
-                # Format the prompt with table, column, and profiling details.
-                # Sibling columns (already fetched) give the model table-level
-                # context at zero cost (eval lever 1, 2026-08-08).
                 sibling_columns = ", ".join(
                     c["name"] for c in columns if c["name"] != col_name
                 )
@@ -221,27 +230,41 @@ class CatalogGenerator:
                         f"Relationship: {col_name} is a foreign key to "
                         f"{fk_target[0]}.{fk_target[1]}."
                     )
-                prompt = COLUMN_DESCRIPTION_PROMPT.format(
-                    table_name=table_name,
-                    col_name=col_name,
-                    col_type=col_type,
-                    profile_context=profile_context,
-                    sibling_columns=sibling_columns,
-                    relationship_context=relationship_context,
+                profiled.append(
+                    (
+                        column,
+                        profile_stats,
+                        profile_context,
+                        sibling_columns,
+                        relationship_context,
+                    )
                 )
 
-                # 512 (not 200): reasoning models (e.g. gemma-4-26b) emit a
-                # verbose thought part before the answer; 200 left only the
-                # thought and no answer text (verified live 2026-08-07).
-                description = self.llm_client.get_description(
-                    prompt, max_tokens=1024
-                )
+            # 3b. One batch LLM call: table summary + all column descriptions.
+            logger.info(f"  - Generating summary+descriptions for table: {table_name}")
+            column_entries = "\n".join(
+                f"{i}. {col['name']} ({col['type']}) | {profile_context}"
+                f" | siblings: {sibling_columns}"
+                f" {relationship_context or '(not a foreign key)'}"
+                for i, (col, _, profile_context, sibling_columns,
+                        relationship_context) in enumerate(profiled, 1)
+            )
+            batch_prompt = TABLE_BATCH_PROMPT.format(
+                table_name=table_name, column_entries=column_entries
+            )
+            batch_response = self.llm_client.get_description(
+                batch_prompt, max_tokens=1024
+            )
+            table_summary, descriptions = self._parse_batch_response(
+                batch_response, len(profiled)
+            )
 
+            for i, (column, profile_stats, _, _, _) in enumerate(profiled, 1):
                 enriched_columns.append(
                     {
-                        "name": col_name,
-                        "type": col_type,
-                        "description": description,
+                        "name": column["name"],
+                        "type": column["type"],
+                        "description": descriptions[i - 1],
                         "profile_stats": profile_stats,
                         "is_pk": column.get("is_pk", False),
                     }

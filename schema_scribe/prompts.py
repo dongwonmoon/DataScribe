@@ -310,3 +310,51 @@ Design Rationale:
   about the schema or its data is transmitted.
 - **Brevity**: "one short sentence" matches the inline hint rendering.
 """
+
+TABLE_BATCH_PROMPT = """
+You are a data analyst documenting a database table.
+
+Table: {table_name}
+
+Columns:
+{column_entries}
+
+Write exactly:
+- One line starting with "SUMMARY:" — the business summary of the table (1-2 sentences).
+- One line per column, starting with its number followed by ": " — the business description (under 15 words).
+
+Rules:
+1. Use the profile statistics to make descriptions accurate.
+2. Do NOT call a foreign key column unique or a category; describe the
+   relationship instead ("references the X table").
+3. If distinct_count is low (< 10) AND the column is NOT unique AND it is
+   not a foreign key, it is likely a category.
+4. If null_ratio is high (> 0.5), the column is likely optional.
+5. Just the lines, nothing else.
+
+Example:
+SUMMARY: Stores information about registered users.
+1: A unique identifier for each user.
+2: The name of the user.
+
+Description lines:
+"""
+"""
+A single-call prompt that batches a table summary and all column
+descriptions (eval/benchmark: 13 LLM calls -> 3 on the clean fixture,
+2026-08-11). The response is parsed line-by-line by
+`CatalogGenerator._parse_batch_response`; missing column lines become
+empty drafts.
+
+Placeholders:
+- `{table_name}`: The table being documented.
+- `{column_entries}`: One numbered line per column — name, type, profile
+  stats, sibling columns, and FK relationship context.
+
+Design Rationale:
+- Rules mirror COLUMN_DESCRIPTION_PROMPT (unique/FK/category/optional),
+  kept in one shared instruction block so the batch path does not drift
+  from the single-column semantics.
+- Numbered "N:" output lines are the cheapest parseable contract across
+  providers (no JSON schema dependency — model-agnostic principle).
+"""

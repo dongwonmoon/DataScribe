@@ -134,11 +134,11 @@ def mock_llm_client():
     """
     Provides a mock LLMClient that returns a predictable description.
     """
+    from schema_scribe.tests.conftest import mock_batch_response
+
     mock_client = MagicMock(spec=BaseLLMClient)
     mock_client.llm_profile_name = "test_llm"
-    mock_client.get_description.return_value = (
-        "This is an AI-generated description."
-    )
+    mock_client.get_description.side_effect = mock_batch_response
     return mock_client
 
 
@@ -209,7 +209,7 @@ def test_db_workflow_end_to_end(
 
     # Check for mocked AI description in tables/views/columns
     for table in captured_catalog_data["tables"]:
-        assert table["ai_summary"] == "This is an AI-generated description."
+        assert table["ai_summary"] == "This is an AI-generated table summary."
         for col in table["columns"]:
             assert col["description"] == "This is an AI-generated description."
     for view in captured_catalog_data["views"]:
@@ -252,31 +252,27 @@ def test_db_workflow_end_to_end_with_profiling(
     calls = mock_llm_client.get_description.call_args_list
 
     # Find the prompt for a specific column (e.g., 'users.id')
-    users_id_prompt = None
+    users_batch_prompt = None
     for call in calls:
         prompt_text = call[0][0]
-        # Make the search more flexible
-        if (
-            "- Table: users" in prompt_text
-            and "- Column: id" in prompt_text
-            and "Data Profile Context:" in prompt_text
-        ):
-            users_id_prompt = prompt_text
+        # The batch prompt (TABLE_BATCH_PROMPT) contains the table name and
+        # the numbered column entries with profile context inline.
+        if "Table: users" in prompt_text and "1. id (INTEGER)" in prompt_text:
+            users_batch_prompt = prompt_text
             break
 
-    assert users_id_prompt is not None, "Prompt for 'users.id' was not found"
+    assert (
+        users_batch_prompt is not None
+    ), "Batch prompt for 'users' was not found"
 
     # Check that the prompt contains the mocked profile stats
-    assert "Data Profile Context:" in users_id_prompt
-    assert "- Null Ratio: 0.0" in users_id_prompt
-    assert "- Is Unique: True" in users_id_prompt
-    assert "- Distinct Count: 0" in users_id_prompt
+    assert "Null Ratio: 0.0" in users_batch_prompt
+    assert "Is Unique: True" in users_batch_prompt
+    assert "Distinct Count: 0" in users_batch_prompt
 
-    # 3. Verify the total number of LLM calls
-    # 3 tables + 1 view = 4 summary calls
-    # 2 (users) + 3 (products) + 3 (orders) = 8 column calls
-    # Total = 12 calls (4 summaries + 8 columns)
-    assert mock_llm_client.get_description.call_count == 12
+    # 3. Verify the total number of LLM calls (batched: one per table +
+    # one per view; the shared fixture has 3 tables + 1 view).
+    assert mock_llm_client.get_description.call_count == 4
 
 
 def test_dry_run_prints_manifest_without_llm_or_write(capsys):
@@ -1098,12 +1094,14 @@ def _interactive_connector():
 
 def _interactive_llm():
     """
-    Minimal LLM mock for interactive tests: one summary draft and one
-    description draft per asset, in generation order (table summary then
-    its columns).
+    Minimal LLM mock for interactive tests: the batch call returns one
+    summary draft and one description draft per column (batched format,
+    2026-08-11).
     """
     llm = MagicMock(spec=BaseLLMClient)
-    llm.get_description.side_effect = ["sum draft", "col draft", "col2 draft"]
+    llm.get_description.side_effect = [
+        "SUMMARY: sum draft\n1: col draft\n2: col2 draft"
+    ]
     return llm
 
 

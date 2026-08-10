@@ -5,7 +5,27 @@ Fixtures defined here are accessible to all tests in the 'tests/' directory and 
 This helps in creating a consistent testing setup and reducing code duplication.
 """
 
+import re
+
 import pytest
+
+
+def mock_batch_response(prompt: str, max_tokens: int = 0) -> str:
+    """A mock LLM response shaped like TABLE_BATCH_PROMPT expects.
+
+    Derives the column count from the numbered "N. name (type)" entries in
+    the prompt, so any table's batch call parses into a summary + one
+    description per column (batching: 13 -> 3 calls, 2026-08-11).
+    """
+    entries = re.findall(r"^\s*(\d+)\.\s", prompt, re.M)
+    if not entries:
+        # Non-batch call (e.g. a view summary): return the plain draft.
+        return "This is an AI-generated description."
+    lines = ["SUMMARY: This is an AI-generated table summary."]
+    lines += [
+        f"{i}: This is an AI-generated description." for i in range(1, len(entries) + 1)
+    ]
+    return "\n".join(lines)
 import sqlite3
 import yaml
 
