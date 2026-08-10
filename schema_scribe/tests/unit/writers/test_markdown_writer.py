@@ -257,3 +257,49 @@ def test_landscape_write_requires_output_filename(tmp_path):
         MarkdownWriter().write_landscape(
             _synthetic_landscape(), db_profile_name="test_db"
         )
+
+
+def test_render_prepends_orientation_summary_when_requested():
+    """--orientation: the catalog render carries a COMPACT front matter —
+    scale, core tables, one row per cluster, NO member listings (the full
+    landscape stays in the standalone report)."""
+    from schema_scribe.components.writers.markdown_writer import MarkdownWriter
+
+    catalog = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "id", "type": "INTEGER", "description": "x",
+                     "is_pk": True},
+                ],
+            }
+        ],
+        "views": [],
+        "foreign_keys": [],
+    }
+    landscape = {
+        "scale": {"tables": 1, "columns": 1,
+                  "column_types": {"INTEGER": 1}},
+        "core_tables": [("users", 2)],
+        "clusters": {"TBL_USR_MST": ["TBL_USR_MST_2021"], "other": []},
+        "relationship_map": {"nodes": ["users"], "edges": []},
+    }
+    out = MarkdownWriter().render(
+        catalog, db_profile_name="d", orientation=landscape
+    )
+    assert "## 🧭 Orientation" in out
+    assert "| Tables | 1 |" in out
+    assert "| 1 | `users` | 2 |" in out
+    assert "| `TBL_USR_MST` | 1 |" in out
+    assert "TBL_USR_MST_2021" not in out  # no member listings in front matter
+    assert "## 🚀 Entity Relationship Diagram" in out  # catalog still follows
+
+
+def test_render_without_orientation_unchanged():
+    """Default render has no orientation section."""
+    from schema_scribe.components.writers.markdown_writer import MarkdownWriter
+
+    catalog = {"tables": [], "views": [], "foreign_keys": []}
+    out = MarkdownWriter().render(catalog, db_profile_name="d")
+    assert "Orientation" not in out

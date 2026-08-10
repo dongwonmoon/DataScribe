@@ -126,6 +126,11 @@ class MarkdownWriter(BaseWriter):
 
         lines = []
 
+        # 0. Orientation front matter (opt-in via --orientation)
+        orientation = kwargs.get("orientation")
+        if orientation:
+            lines.append(self._render_orientation_summary(orientation))
+
         # 1. Main Title
         lines.append(f"# 📁 Data Catalog for {db_profile_name}\n")
 
@@ -178,6 +183,49 @@ class MarkdownWriter(BaseWriter):
                         f"| {name_cell} | `{column['type']}` | {column['description']} |\n"
                     )
                 lines.append("\n")
+        return "".join(lines)
+
+    def _render_orientation_summary(self, landscape: Dict[str, Any]) -> str:
+        """Compact orientation front matter for the catalog (--orientation).
+
+        A deliberate SUMMARY, not the full landscape report: scale + core
+        tables + one row per cluster. The relationship node list is omitted
+        (the catalog's ERD already covers it) and clusters never list their
+        member tables here — the standalone `db --landscape` report is the
+        full artifact. Keeps the catalog from bloating on large databases
+        (2026-08-09, author concern).
+        """
+        lines = ["## 🧭 Orientation\n"]
+
+        scale = landscape["scale"]
+        column_types = (
+            ", ".join(
+                f"{column_type} ({count})"
+                for column_type, count in scale["column_types"].items()
+            )
+            or "-"
+        )
+        lines.append("| Metric | Value |\n| --- | --- |\n")
+        lines.append(f"| Tables | {scale['tables']} |\n")
+        lines.append(f"| Columns | {scale['columns']} |\n")
+        lines.append(f"| Column types | {column_types} |\n")
+
+        core_tables = landscape.get("core_tables", [])
+        if core_tables:
+            lines.append("\n**Core tables (where to start):**\n")
+            lines.append("| Rank | Table | Degree |\n| --- | --- | --- |\n")
+            for rank, (table, degree) in enumerate(core_tables, 1):
+                lines.append(f"| {rank} | `{table}` | {degree} |\n")
+
+        clusters = landscape.get("clusters", {})
+        non_empty = [name for name, members in clusters.items() if members]
+        if non_empty:
+            lines.append("\n**Clusters (naming conventions):**\n")
+            lines.append("| Group | Tables |\n| --- | --- |\n")
+            for name in sorted(non_empty):
+                lines.append(f"| `{name}` | {len(clusters[name])} |\n")
+
+        lines.append("\n---\n")
         return "".join(lines)
 
     def render_landscape(

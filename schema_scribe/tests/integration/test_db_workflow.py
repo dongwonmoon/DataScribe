@@ -1757,3 +1757,35 @@ def test_landscape_and_dry_run_work_without_llm_config(tmp_path):
     assert result.exit_code == 0, result.output
     assert "tiny" in result.output
     assert "unknown" in result.output  # no LLM config → provider renders 'unknown'
+
+
+def test_run_with_orientation_passes_landscape_to_writer(mock_db_connector):
+    """orientation=True: writer.write receives an orientation dict derived
+    from the generated catalog (no extra collection)."""
+    writer = MagicMock(spec=BaseWriter)
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=MagicMock(spec=BaseLLMClient),
+        writer=writer,
+        db_profile_name="d",
+        writer_params={"output_filename": "out.md"},
+        orientation=True,
+    )
+    wf.run()
+    call_kwargs = writer.write.call_args.kwargs
+    orientation = call_kwargs.get("orientation")
+    assert orientation is not None
+    assert "scale" in orientation and "core_tables" in orientation
+
+
+def test_run_without_orientation_has_no_orientation_kwarg(mock_db_connector):
+    writer = MagicMock(spec=BaseWriter)
+    wf = DbWorkflow(
+        mock_db_connector,
+        llm_client=MagicMock(spec=BaseLLMClient),
+        writer=writer,
+        db_profile_name="d",
+        writer_params={"output_filename": "out.md"},
+    )
+    wf.run()
+    assert "orientation" not in writer.write.call_args.kwargs

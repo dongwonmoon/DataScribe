@@ -355,6 +355,12 @@ def scan_db(
         help="Add LLM name-decoding hints to the landscape report "
         "(requires --landscape).",
     ),
+    orientation: bool = typer.Option(
+        False,
+        "--orientation",
+        help="Prefix the written catalog with a compact orientation summary "
+        "(scale, core tables, cluster overview) computed from the catalog.",
+    ),
 ):
     """
     Scans a database, generates documentation, and writes it to an output.
@@ -373,6 +379,14 @@ def scan_db(
         typer.echo(
             "Error: --landscape is mutually exclusive with --dry-run, "
             "--check, and --interactive.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if orientation and (not output_profile or dry_run or check or interactive):
+        typer.echo(
+            "Error: --orientation requires --output and is mutually "
+            "exclusive with --dry-run, --check, and --interactive.",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -495,6 +509,7 @@ def scan_db(
         output_profile_name=out_name,
         writer_params=writer_params,
         provider_name=llm_provider_name,
+        orientation=orientation,
     )
 
     # 4. Execute

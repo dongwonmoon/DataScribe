@@ -58,6 +58,7 @@ class DbWorkflow:
         output_profile_name: Optional[str] = None,
         writer_params: Optional[dict] = None,
         provider_name: Optional[str] = None,
+        orientation: bool = False,
     ):
         """
         Initializes the workflow with all required dependencies.
@@ -72,6 +73,10 @@ class DbWorkflow:
             provider_name: The name of the LLM provider, disclosed in the dry-run
                 manifest. Not read from the client because a dry run never
                 constructs one.
+            orientation: When True (with a writer), prefix the generated
+                catalog with a compact orientation summary computed from the
+                catalog itself — no extra metadata collection
+                (--orientation flag, 2026-08-09).
         """
         self.db_connector = db_connector
         self.llm_client = llm_client
@@ -80,6 +85,7 @@ class DbWorkflow:
         self.output_profile_name = output_profile_name
         self.writer_params = writer_params or {}
         self.provider_name = provider_name
+        self.orientation = orientation
 
     @staticmethod
     def _format_profile_value(value: Any) -> str:
@@ -351,6 +357,21 @@ class DbWorkflow:
             logger.info(f"Closing DB connection for {self.db_profile_name}...")
             self.db_connector.close()
 
+    def _landscape_from_catalog(
+        self, catalog: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Builds the landscape dict from a generated catalog — the catalog
+        already carries tables/columns/foreign_keys, so the orientation
+        summary needs no extra DB collection (2026-08-09).
+        """
+        tables = [table["name"] for table in catalog["tables"]]
+        columns_by_table = {
+            table["name"]: table["columns"] for table in catalog["tables"]
+        }
+        return build_landscape(
+            tables, columns_by_table, catalog.get("foreign_keys", [])
+        )
+
     def _landscape_hints(self, landscape: Dict[str, Any]) -> Dict[str, Any]:
         """
         Adds LLM name-decoding hints to the landscape: one prompt per
@@ -428,7 +449,14 @@ class DbWorkflow:
                 "db_connector": self.db_connector,
                 **self.writer_params,
             }
-            
+
+            if self.orientation:
+                # Compact orientation front matter, computed from the
+                # catalog we just generated — no extra metadata collection.
+                writer_kwargs["orientation"] = self._landscape_from_catalog(
+                    catalog
+                )
+
             self.writer.write(catalog, **writer_kwargs)
             logger.info("Catalog written successfully.")
 
