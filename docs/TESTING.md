@@ -59,3 +59,17 @@ release evidence named in PRODUCT.md:114-116.
   **REJECT** = unusable (wrong meaning, hallucinated, empty).
 
 Quality claims must name fixture, model, prompt version, and method.
+
+### Benchmark (reproducible, PRODUCT.md:117)
+
+```bash
+python scripts/benchmark.py            # seeded clean fixture, mock LLM
+python scripts/benchmark.py --json /tmp/bench.json
+```
+
+Deterministic (no network): reports database query count, LLM call count,
+and elapsed time for the db workflow on the fixed seeded fixture.
+Baseline (2026-08-11): 19 queries / 13 LLM calls / ~2ms (mock LLM). The
+LLM call count is the batching baseline (13 = tables + columns + views);
+the planned 13 → 3 reduction (per-table batching) must be proven by this
+harness before and after.
