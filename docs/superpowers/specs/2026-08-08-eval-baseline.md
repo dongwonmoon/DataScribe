@@ -108,3 +108,19 @@ UNTESTED at scale.
   item_cd "category" residual (rule-3 firing on a code column).
 - **Confirmed positive:** MST/HDR/DTL/TRN decoding works — (c) cured at
   summary level (all 3 panels).
+
+## Batching (E4/E4b, 2026-08-11)
+
+LLM calls per run batched from tables+columns+views to one call per table
+(13 -> 3 on the clean fixture, benchmark-proven; 192-table legacy would be
+~1200 -> ~204). Quality re-measured with gemma-4-26b:
+
+- E4 (naive batch): 1/13 regression — `orders.product_id` → "category"
+  (the FK context got diluted in the dense batch entries).
+- E4b (rules strengthened: FK columns are never unique or categories —
+  "References the X table"; non-FK columns marked explicitly): 13/13 clean,
+  and FK descriptions now use the real-doc convention ("References the
+  products table", cf. jaffle_shop "Foreign key to the customers table").
+
+Parse contract: "SUMMARY:" + numbered "N: <description>" lines — model
+agnostic, no JSON-schema dependency. Missing lines become empty drafts.

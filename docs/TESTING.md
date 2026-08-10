@@ -69,7 +69,7 @@ python scripts/benchmark.py --json /tmp/bench.json
 
 Deterministic (no network): reports database query count, LLM call count,
 and elapsed time for the db workflow on the fixed seeded fixture.
-Baseline (2026-08-11): 19 queries / 13 LLM calls / ~2ms (mock LLM). The
-LLM call count is the batching baseline (13 = tables + columns + views);
+Current (2026-08-11): 19 queries / 3 LLM calls / ~1.5ms (mock LLM).
+Batching (13 -> 3, one call per table) is benchmark-proven;
 the planned 13 → 3 reduction (per-table batching) must be proven by this
 harness before and after.
