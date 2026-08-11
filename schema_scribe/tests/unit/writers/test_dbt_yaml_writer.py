@@ -449,3 +449,51 @@ def test_dbt_yaml_writer_interactive_skip(mock_prompt, dbt_project):
     model_def = updated_data["models"][0]
     assert "description" not in model_def  # Still no description
     mock_prompt.assert_called_once()
+
+
+def test_dbt_yaml_writer_check_mode_detects_removed_model(dbt_project):
+    """
+    Phase 2 (panel): a model documented in schema.yml but ABSENT from the
+    catalog is flagged as removed — check mode must fail. The reverse set
+    difference was never computed (only added/updated were).
+    """
+    from pathlib import Path
+
+    schema_file = Path(dbt_project) / "models" / "schema.yml"
+    data = YAML().load(schema_file.read_text())
+    data["models"].append({"name": "orders"})
+    YAML().dump(data, open(schema_file, "w"))
+
+    # customers is fully documented (matches the existing YAML); orders is
+    # documented but absent from the catalog → the only change is removal.
+    catalog = {
+        "customers": {
+            "model_description": None,
+            "columns": [{"name": "customer_id", "ai_generated": {}}],
+        }
+    }
+    writer = DbtYamlWriter(dbt_project_dir=dbt_project, mode="check")
+    assert writer.write(catalog) is True
+
+
+def test_dbt_yaml_writer_check_mode_ignores_non_model_node_types(dbt_project):
+    """
+    Phase 2 (panel): documented sources/seeds/snapshots must NOT be
+    flagged as removed models — the removal check compares model names
+    only.
+    """
+    from pathlib import Path
+
+    schema_file = Path(dbt_project) / "models" / "schema.yml"
+    data = YAML().load(schema_file.read_text())
+    data["sources"] = [{"name": "raw_customers"}]
+    YAML().dump(data, open(schema_file, "w"))
+
+    catalog = {
+        "customers": {
+            "model_description": None,
+            "columns": [{"name": "customer_id", "ai_generated": {}}],
+        }
+    }
+    writer = DbtYamlWriter(dbt_project_dir=dbt_project, mode="check")
+    assert writer.write(catalog) is False

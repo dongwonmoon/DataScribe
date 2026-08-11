@@ -69,6 +69,7 @@ class DbtYamlWriter:
 
         self.yaml_files: Dict[str, Any] = {}
         self.model_to_file_map: Dict[str, str] = {}
+        self.documented_model_names: set = set()
         self.files_to_write: set[str] = set()
 
     def write(self, catalog_data: Dict[str, Any], **kwargs) -> bool:
@@ -122,6 +123,18 @@ class DbtYamlWriter:
                     model_name, catalog_data[model_name]
                 ):
                     is_outdated = True
+
+        models_to_remove = self.documented_model_names.difference(
+            catalog_models
+        )
+        if models_to_remove:
+            for model_name in sorted(models_to_remove):
+                logger.warning(
+                    f"Model '{model_name}' is documented but absent from "
+                    f"the catalog — removed from the project?"
+                )
+            if self.mode in ["check", "drift"]:
+                is_outdated = True
 
         # In 'update' or 'interactive' mode, write the changes to disk.
         if self.mode not in ["check", "drift"] and self.files_to_write:
@@ -193,6 +206,15 @@ class DbtYamlWriter:
                                     self.model_to_file_map[model_name] = (
                                         file_path
                                     )
+                                    if node_type == "models":
+                                        # Removal detection compares MODEL
+                                        # names only — a documented source
+                                        # or seed absent from the catalog is
+                                        # not a removed model (Phase 2,
+                                        # 2026-08-11).
+                                        self.documented_model_names.add(
+                                            model_name
+                                        )
             except YAMLError as e:
                 raise WriterError(
                     f"Failed to parse YAML file: {file_path}"
