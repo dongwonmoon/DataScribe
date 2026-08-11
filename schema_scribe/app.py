@@ -804,6 +804,9 @@ def serve_app(
         "127.0.0.1", help="The host to bind the server to."
     ),
     port: int = typer.Option(8000, help="The port to run the server on."),
+    config_path: str = typer.Option(
+        "config.yaml", "--config", help="The configuration file for the server."
+    ),
 ):
     """
     Launches the Schema Scribe web server (FastAPI).
@@ -821,6 +824,11 @@ def serve_app(
         )
         raise typer.Exit(code=1)
 
+    # The server resolves profiles from the given config; job endpoints
+    # (POST /api/jobs) and /api/profiles read it per request.
+    from schema_scribe.server import main as server_main
+
+    server_main.CONFIG_PATH = config_path
     logger.info(f"Starting Schema Scribe server at http://{host}:{port}")
     logger.info("Go to http://{host}:{port}/docs for API documentation.")
 

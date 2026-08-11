@@ -11,7 +11,7 @@ between the CLI and the server.
 
 import os
 import json
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -23,7 +23,11 @@ from schema_scribe.workflows.db_workflow import DbWorkflow
 from schema_scribe.workflows.dbt_workflow import DbtWorkflow
 from schema_scribe.workflows.lineage_workflow import LineageWorkflow
 from schema_scribe.core.exceptions import DataScribeError, CIError
+from schema_scribe.server.jobs import JobManager, QueueFullError
+from schema_scribe.utils.counters import CountingCursor, CountingLLM
 from schema_scribe.utils.logger import get_logger
+from contextlib import asynccontextmanager
+import time
 
 logger = get_logger(__name__)
 
@@ -35,6 +39,26 @@ app = FastAPI(
 )
 
 CATALOG_CACHE_FILE = "server_catalog.json"
+CONFIG_PATH = "config.yaml"  # set by `schema-scribe serve --config`
+
+@asynccontextmanager
+async def lifespan(app):
+    # Fresh manager per app run: asyncio.Queue binds to the running event
+    # loop, so a module-level instance breaks across TestClient lifespans.
+    app.state.job_manager = JobManager(max_concurrent=2, max_queue=10)
+    app.state.job_manager.start()
+    try:
+        yield
+    finally:
+        await app.state.job_manager.stop()
+
+
+app = FastAPI(
+    title="Schema Scribe Server",
+    description="API for running Schema Scribe documentation workflows.",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 # --- Pydantic Models for API Request/Response Validation ---
 
@@ -45,6 +69,12 @@ class ProfileInfo(BaseModel):
     db_connections: List[str]
     llm_providers: List[str]
     output_profiles: List[str]
+
+
+class JobRequest(BaseModel):
+    """Body for POST /api/jobs: the db profile to scan."""
+
+    db_profile: str
 
 
 class RunDbWorkflowRequest(BaseModel):
@@ -82,7 +112,7 @@ def get_profiles():
     """
     try:
         # Use ConfigManager to safely load and access the config
-        cfg_manager = ConfigManager("config.yaml")
+        cfg_manager = ConfigManager(CONFIG_PATH)
         config = cfg_manager.config
         return {
             "db_connections": list(config.get("db_connections", {}).keys()),
@@ -100,72 +130,105 @@ def get_profiles():
         )
 
 
-@app.post("/api/run/db", status_code=200)
-def run_db_workflow(request: RunDbWorkflowRequest):
-    """
-    Runs the 'db' documentation workflow.
+def _error(code: str, message: str, status: int):
+    """Consistent error shape (Phase 3a)."""
+    return HTTPException(status_code=status, detail={"error": {"code": code, "message": message}})
 
-    This endpoint uses the `ConfigManager` to build and inject
-    components (DB, LLM, Writer) into the DbWorkflow based on
-    the profile names provided in the request.
-    """
-    db_connector = None
+
+def _run_db_scan_job(config_path: str, db_profile: str) -> dict:
+    """Runs a db scan synchronously (called from the job manager's thread
+    via asyncio.to_thread) and returns the catalog + engine metrics."""
+    cfg_manager = ConfigManager(config_path)
+    connector, db_name = cfg_manager.get_db_connector(db_profile)
+    llm_client, _ = cfg_manager.get_llm_client(None)
+
+    counting_cursor = CountingCursor(connector.cursor)
+    connector.cursor = counting_cursor
+    counting_llm = CountingLLM(llm_client)
+
+    workflow = DbWorkflow(
+        db_connector=connector,
+        llm_client=counting_llm,
+        writer=None,
+        db_profile_name=db_name,
+    )
+    t0 = time.perf_counter()
+    catalog = workflow.generate_catalog()
+    engine_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+    metrics = {
+        "db_queries": counting_cursor.count,
+        "llm_calls": counting_llm.count,
+        "engine_ms": engine_ms,
+    }
+    # Update the catalog cache (read surface for /api/catalog and the UI).
     try:
-        logger.info(
-            f"Received request to run 'db' workflow with profile: {request.db_profile}"
-        )
-        cfg_manager = ConfigManager("config.yaml")
-
-        # 1. Get dependencies
-        db_connector, db_name = cfg_manager.get_db_connector(request.db_profile)
-        llm_client, _ = cfg_manager.get_llm_client(request.llm_profile)
-        
-        # Get output writer *only if specified*, 
-        # but the primary goal is to update the cache.
-        writer, out_name, writer_params = cfg_manager.get_writer(request.output_profile)
-
-        workflow = DbWorkflow(
-            db_connector=db_connector,
-            llm_client=llm_client,
-            writer=writer, # Pass writer if it exists
-            db_profile_name=db_name,
-            output_profile_name=out_name,
-            writer_params=writer_params,
-        )
-        
-        # 2. Generate catalog
-        # This executes the logic and closes the connection.
-        catalog_data = workflow.generate_catalog()
-
-        # 3. Update the central cache
-        try:
-            with open(CATALOG_CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(catalog_data, f, indent=2)
-            logger.info(f"Updated catalog cache file: {CATALOG_CACHE_FILE}")
-        except Exception as e:
-            logger.error(f"Failed to write catalog cache: {e}")
-            # This isn't fatal, but we should log it.
-
-        # 4. If a writer was requested, also run the write logic
-        if writer:
-            logger.info(f"Running writer for output profile: {out_name}")
-            writer_kwargs = {
-                "db_profile_name": db_name,
-                "db_connector": db_connector, # Note: connection is closed, only for metadata
-                **writer_params,
-            }
-            writer.write(catalog_data, **writer_kwargs)
-
-        # 5. Return the new catalog data
-        return catalog_data
-    except DataScribeError as e:
-        logger.error(f"Schema Scribe error running workflow: {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=str(e))
+        with open(CATALOG_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(catalog, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"Unexpected error running workflow: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"An unexpected error occurred: {e}"
+        logger.error(f"Failed to write catalog cache: {e}")
+    return {"catalog": catalog, "metrics": metrics}
+
+
+def _manager(request):
+    return request.app.state.job_manager
+
+
+@app.post("/api/jobs", status_code=202)
+def submit_job(request: JobRequest, fastapi_request: Request):
+    """Schedules a db documentation scan; returns a job id immediately.
+
+    The engine runs off the event loop (asyncio.to_thread), so polling
+    stays responsive during long runs. Queue overflow -> 429.
+    """
+    # Validate the profile exists BEFORE enqueuing (400, cheap).
+    try:
+        cfg = ConfigManager(CONFIG_PATH)
+        cfg.get_db_connector(request.db_profile)
+    except Exception:
+        raise _error("unknown_profile", f"db profile '{request.db_profile}' not found", 400)
+
+    try:
+        job_id = _manager(fastapi_request).submit(
+            lambda: _run_db_scan_job(CONFIG_PATH, request.db_profile)
         )
+    except QueueFullError as e:
+        raise _error("queue_full", str(e), 429)
+    return {"job_id": job_id}
+
+
+@app.get("/api/jobs")
+def list_jobs(fastapi_request: Request):
+    """Job board: newest first."""
+    manager = _manager(fastapi_request)
+    jobs = []
+    for jid in manager.job_ids():
+        jobs.append(_job_state(manager.get(jid)))
+    return {"jobs": jobs}
+
+
+def _job_state(job) -> dict:
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "error": job.error,
+        "submitted_at": job.submitted_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "metrics": job.result.get("metrics") if job.result else None,
+        "has_catalog": bool(job.result and job.result.get("catalog")),
+    }
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str, fastapi_request: Request):
+    job = _manager(fastapi_request).get(job_id)
+    if job is None:
+        raise _error("unknown_job", f"job '{job_id}' not found", 404)
+    state = _job_state(job)
+    if state["has_catalog"]:
+        state["catalog"] = job.result["catalog"]
+    return state
 
 
 @app.post("/api/run/dbt", status_code=200)
@@ -191,7 +254,7 @@ def run_dbt_workflow(request: RunDbtWorkflowRequest):
                 status_code=400, detail="Drift mode requires a db_profile."
             )
 
-        cfg_manager = ConfigManager("config.yaml")
+        cfg_manager = ConfigManager(CONFIG_PATH)
 
         # Build components
         llm_client, llm_name = cfg_manager.get_llm_client(request.llm_profile)
@@ -274,7 +337,7 @@ def get_global_lineage_graph(
     db_connector = None
     try:
         # Adheres to Phase 1 DI pattern
-        cfg_manager = ConfigManager("config.yaml")
+        cfg_manager = ConfigManager(CONFIG_PATH)
 
         # 1. Build dependencies using ConfigManager
         db_connector, db_name = cfg_manager.get_db_connector(db_profile)

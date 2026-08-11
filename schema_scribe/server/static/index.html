@@ -1,385 +1,167 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>✍️ Schema Scribe</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            margin: 0;
-            background: #f4f7f6;
-            color: #333;
-            display: flex;
-            height: 100vh;
-        }
-        .sidebar {
-            width: 240px;
-            background: #2c3e50;
-            color: white;
-            padding: 20px;
-            height: 100vh;
-            box-sizing: border-box;
-        }
-        .sidebar h1 {
-            font-size: 24px;
-            margin: 0 0 30px 0;
-            color: #ecf0f1;
-        }
-        .sidebar nav ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .sidebar nav li {
-            padding: 15px 10px;
-            cursor: pointer;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            font-size: 18px;
-            transition: background 0.2s;
-        }
-        .sidebar nav li.active, .sidebar nav li:hover {
-            background: #34495e;
-            color: #1abc9c;
-        }
-        .main-content {
-            flex: 1;
-            padding: 40px;
-            overflow-y: auto;
-            height: 100vh;
-            box-sizing: border-box;
-        }
-        .page {
-            display: none; /* Pages are hidden by default */
-        }
-        .page.active {
-            display: block; /* Active page is shown */
-        }
-        h2 {
-            border-bottom: 2px solid #1abc9c;
-            padding-bottom: 10px;
-            margin-top: 0;
-        }
-        pre {
-            background: #ecf0f1;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #bdc3c7;
-            overflow-x: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .form-card {
-            background: #ffffff;
-            padding: 25px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-            margin-bottom: 30px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: bold;
-        }
-        .form-group select, .form-group input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #bdc3c7;
-            border-radius: 5px;
-            box-sizing: border-box;
-        }
-        button {
-            background: #1abc9c;
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: bold;
-            transition: background 0.2s;
-        }
-        button:hover {
-            background: #16a085;
-        }
-        .status-log {
-            margin-top: 20px;
-        }
-        #loadingSpinner {
-            display: none;
-            font-size: 18px;
-            color: #34495e;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Schema Scribe Demo</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
+    header { background: #fff; padding: 16px 24px; border-bottom: 1px solid #e5e5ea; }
+    header h1 { margin: 0; font-size: 20px; }
+    main { padding: 24px; max-width: 960px; margin: 0 auto; }
+    section { background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;
+              box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    h2 { font-size: 16px; margin-top: 0; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    select, button { font-size: 14px; padding: 6px 12px; border-radius: 8px; border: 1px solid #d1d1d6; }
+    button { background: #0071e3; color: #fff; border: none; cursor: pointer; }
+    button:disabled { background: #a9a9ad; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eee; }
+    th { background: #fafafa; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .badge.pending { background: #fff3cd; color: #856404; }
+    .badge.running { background: #cce5ff; color: #004085; }
+    .badge.succeeded { background: #d4edda; color: #155724; }
+    .badge.failed { background: #f8d7da; color: #721c24; }
+    .metric { color: #555; font-size: 12px; }
+    pre { background: #f5f5f7; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
+    .catalog-table { margin-top: 12px; }
+    .status { color: #666; font-size: 13px; margin-top: 8px; }
+  </style>
 </head>
 <body>
+  <header><h1>✍️ Schema Scribe — Thin Hosted Demo</h1></header>
+  <main>
+    <section>
+      <h2>🚀 Submit a scan</h2>
+      <div class="row">
+        <select id="profile"></select>
+        <button id="submit" onclick="submitJob()">Scan database</button>
+      </div>
+      <div class="status" id="submit-status"></div>
+    </section>
 
-    <aside class="sidebar">
-        <h1>✍️ Schema Scribe</h1>
-        <nav>
-            <ul>
-                <li id="nav-catalog" class="active" onclick="showPage('catalog')">🔍 Data Catalog</li>
-                <li id="nav-lineage" onclick="showPage('lineage')">🌐 Global Lineage</li>
-                <li id="nav-workspace" onclick="showPage('workspace')">⚙️ Workspace</li>
-            </ul>
-        </nav>
-    </aside>
+    <section>
+      <h2>📋 Job board <span class="metric">(polls every 1s while active)</span></h2>
+      <table>
+        <thead><tr><th>Job</th><th>Status</th><th>Timing (submitted → done)</th><th>Engine metrics</th></tr></thead>
+        <tbody id="jobs"></tbody>
+      </table>
+      <div class="status" id="queue-status"></div>
+    </section>
 
-    <main class="main-content">
-        
-        <section id="page-catalog" class="page active">
-            <h2>🔍 Data Catalog</h2>
-            <p>The latest generated catalog snapshot. Run a workflow in the 'Workspace' to update.</p>
-            <button onclick="fetchCatalog()">Refresh Catalog Cache</button>
-            <pre id="catalog-json-content">Loading catalog cache...</pre>
-        </section>
+    <section>
+      <h2>📁 Latest catalog</h2>
+      <div id="catalog"></div>
+    </section>
+  </main>
 
-        <section id="page-lineage" class="page">
-            <h2>🌐 Global Lineage (JSON Output)</h2>
-            <p>The raw JSON for the end-to-end lineage graph. A UI library like react-flow would render this.</p>
-            <div class="form-group">
-                <label for="lineage-db-profile">DB Profile (for FKs)</label>
-                <select id="lineage-db-profile"></select>
-            </div>
-            <div class="form-group">
-                <label for="lineage-dbt-dir">dbt Project Directory</label>
-                <input id="lineage-dbt-dir" type="text" value="/path/to/dbt/project">
-            </div>
-            <button onclick="fetchLineage()">Fetch Lineage Graph</button>
-            <pre id="lineage-json-content">Click 'Fetch' to load lineage data...</pre>
-        </section>
+  <script>
+    let pollTimer = null;
 
-        <section id="page-workspace" class="page">
-            <h2>⚙️ Workspace</h2>
-            
-            <div class="form-card">
-                <h3>Run 'db' Workflow</h3>
-                <p>Scan a database, generate docs, and update the cache.</p>
-                <div class="form-group">
-                    <label for="run-db-profile">DB Profile</label>
-                    <select id="run-db-profile"></select>
-                </div>
-                <div class="form-group">
-                    <label for="run-db-llm">LLM Profile</label>
-                    <select id="run-db-llm"></select>
-                </div>
-                <div class="form-group">
-                    <label for="run-db-output">Output Profile (Optional)</label>
-                    <select id="run-db-output">
-                        <option value="">-- None (Update Cache Only) --</option>
-                    </select>
-                </div>
-                <button onclick="runDbWorkflow()">🚀 Run 'db' Workflow</button>
-            </div>
+    async function api(path, opts) {
+      const r = await fetch(path, opts);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error((body.detail && body.detail.error && body.detail.error.message) || r.statusText);
+      }
+      return r.json();
+    }
 
-            <div class="form-card">
-                <h3>Run 'dbt' Workflow</h3>
-                <p>Analyze a dbt project, generate docs, and update the cache.</p>
-                <div class="form-group">
-                    <label for="run-dbt-dir">dbt Project Directory</label>
-                    <input id="run-dbt-dir" type="text" value="/path/to/dbt/project">
-                </div>
-                <div class="form-group">
-                    <label for="run-dbt-llm">LLM Profile</label>
-                    <select id="run-dbt-llm"></select>
-                </div>
-                <div class="form-group">
-                    <label for="run-dbt-mode">Mode</label>
-                    <select id="run-dbt-mode">
-                        <option value="cache_only">-- Output to Cache (Default) --</option>
-                        <option value="update">--update</option>
-                        <option value="check">--check</option>
-                        <option value="drift">--drift</option>
-                    </select>
-                </div>
-                 <div class="form-group">
-                    <label for="run-dbt-db">DB Profile (Required for --drift)</label>
-                    <select id="run-dbt-db">
-                         <option value="">-- None --</option>
-                    </select>
-                </div>
-                <button onclick="runDbtWorkflow()">🚀 Run 'dbt' Workflow</button>
-            </div>
+    async function loadProfiles() {
+      try {
+        const data = await api('/api/profiles');
+        const sel = document.getElementById('profile');
+        const names = (data.db_connections || []).filter(n => typeof n === 'string');
+        sel.innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join('') || '<option>—</option>';
+      } catch (e) {
+        document.getElementById('submit-status').textContent = 'profiles: ' + e.message;
+      }
+    }
 
-            <div class="status-log">
-                <h3>Workflow Status</h3>
-                <div id="loadingSpinner">Running workflow... please wait...</div>
-                <pre id="run-status-content">Click a 'Run' button to start...</pre>
-            </div>
-        </section>
-    </main>
+    async function submitJob() {
+      const profile = document.getElementById('profile').value;
+      const btn = document.getElementById('submit');
+      btn.disabled = true;
+      document.getElementById('submit-status').textContent = 'submitting…';
+      try {
+        const r = await api('/api/jobs', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({db_profile: profile}),
+        });
+        document.getElementById('submit-status').textContent = `submitted ${r.job_id}`;
+        startPolling();
+      } catch (e) {
+        document.getElementById('submit-status').textContent = 'error: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
-    <script>
-        // === Basic SPA Navigation ===
-        function showPage(pageId) {
-            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
-            document.querySelectorAll('.sidebar nav li').forEach(li => li.classList.remove('active'));
-            
-            document.getElementById(`page-${pageId}`).classList.add('active');
-            document.getElementById(`nav-${pageId}`).classList.add('active');
+    function startPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(refreshBoard, 1000);
+      refreshBoard();
+    }
+
+    async function refreshBoard() {
+      try {
+        const data = await api('/api/jobs');
+        const tbody = document.getElementById('jobs');
+        tbody.innerHTML = data.jobs.map(j => {
+          const timing = j.finished_at
+            ? ((j.finished_at - j.submitted_at) * 1000).toFixed(0) + ' ms'
+            : j.started_at ? 'running…' : 'queued';
+          const m = j.metrics
+            ? `queries=${j.metrics.db_queries} llm=${j.metrics.llm_calls} engine=${j.metrics.engine_ms}ms`
+            : j.error ? `failed: ${j.error}` : '—';
+          return `<tr><td><code>${j.job_id}</code></td>
+                  <td><span class="badge ${j.status}">${j.status}</span></td>
+                  <td>${timing}</td><td class="metric">${m}</td></tr>`;
+        }).join('');
+        const active = data.jobs.filter(j => j.status === 'pending' || j.status === 'running').length;
+        document.getElementById('queue-status').textContent = active
+          ? `${active} active job(s)…` : '';
+        const done = data.jobs.find(j => j.status === 'succeeded' && j.has_catalog);
+        if (done && !document.getElementById('catalog').dataset.jobId) {
+          renderCatalog(done);
         }
+        if (!active) stopPolling();
+      } catch (e) { /* transient */ }
+    }
 
-        // === API Helpers ===
-        const api = {
-            async get(url) {
-                const response = await fetch(url);
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'API request failed');
-                }
-                return response.json();
-            },
-            async post(url, body) {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                const result = await response.json();
-                if (!response.ok) {
-                    throw new Error(result.detail || 'API request failed');
-                }
-                return result;
-            }
-        };
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
 
-        function showLoading(isLoading) {
-            document.getElementById('loadingSpinner').style.display = isLoading ? 'block' : 'none';
+    function renderCatalog(job) {
+      const el = document.getElementById('catalog');
+      el.dataset.jobId = job.job_id;
+      const c = job.catalog;
+      let html = `<div class="status">from job <code>${job.job_id}</code></div>`;
+      html += `<h3>Scale: ${c.tables ? c.tables.length : 0} tables</h3>`;
+      for (const table of (c.tables || [])) {
+        html += `<h4>📄 ${table.name}</h4>`;
+        if (table.ai_summary) html += `<p class="metric">${table.ai_summary}</p>`;
+        html += `<table class="catalog-table"><thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead><tbody>`;
+        for (const col of (table.columns || [])) {
+          html += `<tr><td>${col.is_pk ? '🔑 ' : ''}${col.name}</td><td>${col.type}</td><td>${col.description || '—'}</td></tr>`;
         }
-
-        function setStatus(message, isError = false) {
-            const el = document.getElementById('run-status-content');
-            el.textContent = (typeof message === 'object') ? JSON.stringify(message, null, 2) : message;
-            el.style.color = isError ? 'red' : 'green';
+        html += '</tbody></table>';
+      }
+      if (c.foreign_keys && c.foreign_keys.length) {
+        html += `<h4>🔗 Relationships</h4><ul class="metric">`;
+        for (const fk of c.foreign_keys) {
+          html += `<li>${fk.source_table}.${fk.source_column} → ${fk.target_table}.${fk.target_column}</li>`;
         }
+        html += '</ul>';
+      }
+      el.innerHTML = html;
+    }
 
-        // === Page Logic: Catalog ===
-        async function fetchCatalog() {
-            const el = document.getElementById('catalog-json-content');
-            try {
-                el.textContent = 'Loading...';
-                const data = await api.get('/api/catalog');
-                el.textContent = JSON.stringify(data, null, 2);
-            } catch (err) {
-                el.textContent = `Error loading catalog cache:\n${err.message}`;
-            }
-        }
-
-        // === Page Logic: Lineage ===
-        async function fetchLineage() {
-            const el = document.getElementById('lineage-json-content');
-            const dbProfile = document.getElementById('lineage-db-profile').value;
-            const dbtDir = document.getElementById('lineage-dbt-dir').value;
-
-            if (!dbProfile || !dbtDir) {
-                el.textContent = 'Please select a DB profile and enter a dbt project path.';
-                return;
-            }
-
-            try {
-                el.textContent = 'Fetching lineage graph...';
-                const url = `/api/lineage/graph?db_profile=${encodeURIComponent(dbProfile)}&dbt_project_dir=${encodeURIComponent(dbtDir)}`;
-                const data = await api.get(url);
-                el.textContent = JSON.stringify(data, null, 2);
-            } catch (err) {
-                el.textContent = `Error fetching lineage:\n${err.message}`;
-            }
-        }
-
-        // === Page Logic: Workspace (Run Workflows) ===
-        async function runDbWorkflow() {
-            showLoading(true);
-            setStatus('Starting "db" workflow...');
-            try {
-                const payload = {
-                    db_profile: document.getElementById('run-db-profile').value,
-                    llm_profile: document.getElementById('run-db-llm').value,
-                    output_profile: document.getElementById('run-db-output').value || null
-                };
-                const result = await api.post('/api/run/db', payload);
-                setStatus(result);
-                fetchCatalog(); // Auto-refresh catalog page
-            } catch (err) {
-                setStatus(err.message, true);
-            } finally {
-                showLoading(false);
-            }
-        }
-
-        async function runDbtWorkflow() {
-            showLoading(true);
-            setStatus('Starting "dbt" workflow...');
-            try {
-                const mode = document.getElementById('run-dbt-mode').value;
-                const payload = {
-                    dbt_project_dir: document.getElementById('run-dbt-dir').value,
-                    llm_profile: document.getElementById('run-dbt-llm').value,
-                    db_profile: document.getElementById('run-dbt-db').value || null,
-                    output_profile: null, // Default for cache
-                    update_yaml: mode === 'update',
-                    check: mode === 'check',
-                    drift: mode === 'drift'
-                };
-                
-                const result = await api.post('/api/run/dbt', payload);
-                setStatus(result);
-                
-                // Only refresh catalog if we were in cache mode
-                if (mode === 'cache_only') {
-                    fetchCatalog(); // Auto-refresh catalog page
-                }
-            } catch (err) {
-                setStatus(err.message, true);
-            } finally {
-                showLoading(false);
-            }
-        }
-
-        // === Initial Data Load ===
-        async function loadInitialData() {
-            // 1. Load profiles for workspace forms
-            try {
-                const profiles = await api.get('/api/profiles');
-                
-                // Populate all select dropdowns
-                const dbSelects = [
-                    document.getElementById('lineage-db-profile'),
-                    document.getElementById('run-db-profile'),
-                    document.getElementById('run-dbt-db')
-                ];
-                const llmSelects = [
-                    document.getElementById('run-db-llm'),
-                    document.getElementById('run-dbt-llm')
-                ];
-                const outputSelects = [
-                    document.getElementById('run-db-output')
-                ];
-
-                profiles.db_connections.forEach(p => {
-                    dbSelects.forEach(s => s?.appendChild(new Option(p, p)));
-                });
-                profiles.llm_providers.forEach(p => {
-                    llmSelects.forEach(s => s?.appendChild(new Option(p, p)));
-                });
-                profiles.output_profiles.forEach(p => {
-                    outputSelects.forEach(s => s?.appendChild(new Option(p, p)));
-                });
-
-            } catch (err) {
-                console.error("Failed to load profiles:", err);
-                alert("Could not load server profiles. Please check config.yaml and refresh.");
-            }
-
-            // 2. Load initial catalog data
-            fetchCatalog();
-        }
-
-        // Run on page load
-        document.addEventListener('DOMContentLoaded', loadInitialData);
-    </script>
+    loadProfiles();
+    refreshBoard();
+  </script>
 </body>
 </html>
