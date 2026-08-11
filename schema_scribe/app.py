@@ -162,7 +162,7 @@ def _prompt_db_params(
             f"Password (sensitive, will be stored in .env)", hide_input=True
         )
         env_key = f"{profile_name.upper()}_PASSWORD"
-        params["password"] = f"$ {{{env_key}}}"
+        params["password"] = f"${{{env_key}}}"
         env_data[env_key] = pw
         params["dbname"] = typer.prompt("Database (dbname)")
         if db_type == "postgres":
@@ -179,7 +179,7 @@ def _prompt_db_params(
             f"Password (sensitive, will be stored in .env)", hide_input=True
         )
         env_key = f"{profile_name.upper()}_PASSWORD"
-        params["password"] = f"$ {{{env_key}}}"
+        params["password"] = f"${{{env_key}}}"
         env_data[env_key] = pw
         params["warehouse"] = typer.prompt("Warehouse")
         params["database"] = typer.prompt("Database")
@@ -763,7 +763,7 @@ def init_config():
             with open(ENV_FILE, "a", encoding="utf-8") as f:
                 f.write("\n# Added by schema-scribe init\n")
                 for key, value in env_data.items():
-                    f.write(f'{key}"={value}"\n')
+                    f.write(f"{key}={value}\n")
             logger.info(
                 typer.style(
                     f"Sensitive information added to '{ENV_FILE}'.",
