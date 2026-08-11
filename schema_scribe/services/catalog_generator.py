@@ -214,9 +214,13 @@ class CatalogGenerator:
         # --- 2. Disclose the payload before the first LLM call ---
         provider = self.provider_name or "unknown"
         logger.info(
-            f"Sending {len(tables)} table summaries and {total_columns} "
-            f"column descriptions to provider '{provider}'. Metadata: "
-            f"tables={len(tables)}, columns={total_columns}, views={len(views)}."
+            f"Sending {len(tables)} batched table prompts and {len(views)} "
+            f"view prompts to provider '{provider}'. Each table prompt "
+            f"carries column names/types, profile stats (null_ratio, "
+            f"distinct_count, is_unique), sibling columns, and FK "
+            f"relationships; view prompts carry the view SQL verbatim. "
+            f"Metadata: tables={len(tables)}, columns={total_columns}, "
+            f"views={len(views)}."
         )
 
         # --- 3. Process Tables and Columns (batched: one LLM call per table) ---

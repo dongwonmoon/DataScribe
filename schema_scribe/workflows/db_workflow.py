@@ -154,7 +154,8 @@ class DbWorkflow:
             else:
                 print(
                     "Per-column aggregate stats (null_ratio, distinct_count, "
-                    "is_unique) computed at run time"
+                    "is_unique) computed at run time. Batch prompts also "
+                    "carry sibling-column names and FK relationship context."
                 )
         finally:
             logger.info(f"Closing DB connection for {self.db_profile_name}...")

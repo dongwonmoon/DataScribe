@@ -419,13 +419,16 @@ def test_run_discloses_payload_before_first_llm_call(caplog):
         wf.run()
 
     assert (
-        "Sending 1 table summaries and 1 column descriptions to provider "
-        "'openai'. Metadata: tables=1, columns=1, views=1."
+        "Sending 1 batched table prompts and 1 view prompts to provider "
+        "'openai'. Each table prompt carries column names/types, profile "
+        "stats (null_ratio, distinct_count, is_unique), sibling columns, "
+        "and FK relationships; view prompts carry the view SQL verbatim. "
+        "Metadata: tables=1, columns=1, views=1."
     ) in caplog.text
 
     messages = [r.getMessage() for r in caplog.records]
     disclosure_index = next(
-        i for i, m in enumerate(messages) if "table summaries" in m
+        i for i, m in enumerate(messages) if "batched table prompts" in m
     )
     first_llm_index = next(
         i for i, m in enumerate(messages) if m == "LLM get_description called"
