@@ -1,0 +1,49 @@
+{
+  "tables": {
+    "users": {
+      "columns": {
+        "id": "INTEGER",
+        "name": "TEXT",
+        "email": "TEXT"
+      },
+      "pk": [
+        "id"
+      ],
+      "fks": []
+    },
+    "products": {
+      "columns": {
+        "id": "INTEGER",
+        "name": "TEXT",
+        "price": "REAL"
+      },
+      "pk": [
+        "id"
+      ],
+      "fks": []
+    },
+    "orders": {
+      "columns": {
+        "id": "INTEGER",
+        "user_id": "INTEGER",
+        "product_id": "INTEGER",
+        "order_date": "TEXT"
+      },
+      "pk": [
+        "id"
+      ],
+      "fks": [
+        {
+          "source": "product_id",
+          "target": "products.id"
+        },
+        {
+          "source": "user_id",
+          "target": "users.id"
+        }
+      ]
+    }
+  },
+  "views": [],
+  "generated_at": "2026-08-11T08:24:19.109767+00:00"
+}

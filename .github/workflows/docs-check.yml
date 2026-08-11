@@ -1,11 +1,10 @@
 name: docs-check
 
-# LLM-free documentation gates: db --check (structural schema drift vs the
-# committed baseline sidecar) and db --drift would be LLM-free too — the
-# profile-drift gate is deferred (see docs/superpowers/plans/
-# 2026-08-11-phase2-drift-and-change-checks.md Task 3). The baseline
-# sidecar is written by one generation run and committed; these steps
-# never call an LLM.
+# LLM-free documentation gate: db --check (structural schema drift vs the
+# COMMITTED baseline in ci/). The baseline (ci/fixture.db + ci/catalog.md
+# + ci/catalog.md.schema-state.json) is deterministic — generated once with
+# a stub LLM, committed, and verified by this gate on every push. The gate
+# never calls an LLM (2026-08-11, Phase 2).
 on: [push, pull_request]
 
 jobs:
@@ -16,4 +15,4 @@ jobs:
       - run: pip install -e '.[all]'
       - name: Structural docs gate (no LLM)
         run: |
-          schema-scribe db --db fixture --output md --check || exit 1
+          schema-scribe db --config ci/config.ci.yaml --db fixture --output md --check

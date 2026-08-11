@@ -1,0 +1,10 @@
+default:
+  db: fixture
+db_connections:
+  fixture:
+    type: sqlite
+    path: ci/fixture.db
+output_profiles:
+  md:
+    type: markdown
+    output_filename: ci/catalog.md
