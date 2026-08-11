@@ -694,6 +694,7 @@ def test_check_stale_sidecar_reports_added_table(capsys, tmp_path):
     a per-object status line.
     """
     output = tmp_path / "out.md"
+    output.write_text("# OLD DOCUMENT\n", encoding="utf-8")
     SchemaState.save(
         {"tables": {}, "views": [], "generated_at": "x"},
         str(output) + ".schema-state.json",
@@ -794,6 +795,7 @@ def test_check_unchanged_sidecar_returns_false(capsys, tmp_path):
     unchanged → check() returns False.
     """
     output = tmp_path / "out.md"
+    output.write_text("# OLD DOCUMENT\n", encoding="utf-8")
     SchemaState.save(
         {
             "tables": {
@@ -816,10 +818,11 @@ def test_check_unchanged_sidecar_returns_false(capsys, tmp_path):
     assert "[unchanged]            users" in out
 
 
-def test_check_prints_unified_diff_and_never_writes(tmp_path, capsys):
+def test_check_is_structural_no_llm_and_never_writes(capsys, tmp_path):
     """
-    When the output file exists, check() prints a unified diff of the new
-    render vs the existing content and leaves the file untouched.
+    --check is a structural gate: the verdict uses connector metadata only
+    (no LLM calls), the prose diff is gone, and the output file is never
+    touched (panel C1/C9, 2026-08-11).
     """
     output = tmp_path / "out.md"
     output.write_text("# OLD DOCUMENT\n", encoding="utf-8")
@@ -827,19 +830,43 @@ def test_check_prints_unified_diff_and_never_writes(tmp_path, capsys):
         {"tables": {}, "views": [], "generated_at": "x"},
         str(output) + ".schema-state.json",
     )
+    llm = _check_llm()
     wf = DbWorkflow(
         _check_connector(),
-        _check_llm(),
+        llm,
         writer=MarkdownWriter(),
         db_profile_name="d",
         writer_params={"output_filename": str(output)},
     )
     assert wf.check() is True
     out = capsys.readouterr().out
-    assert "# OLD DOCUMENT" in out  # existing content in the diff
-    assert "Data Catalog for d" in out  # new render in the diff
-    assert "+++ <new render>" in out
+    assert "[added]                users" in out
+    assert "new render" not in out
+    assert "# OLD DOCUMENT" not in out  # no diff of the existing content
+    llm.get_description.assert_not_called()
     assert output.read_text(encoding="utf-8") == "# OLD DOCUMENT\n"
+
+
+def test_check_sidecar_without_output_file_fails(tmp_path, capsys):
+    """
+    Panel C7: a sidecar that exists while the documentation output file is
+    MISSING means the documentation is outdated → check() returns True
+    (exit 1) with an explicit message, instead of a silent green.
+    """
+    output = tmp_path / "out.md"
+    SchemaState.save(
+        {"tables": {}, "views": [], "generated_at": "x"},
+        str(output) + ".schema-state.json",
+    )
+    wf = DbWorkflow(
+        _check_connector(),
+        _check_llm(),
+        writer=None,
+        db_profile_name="d",
+        writer_params={"output_filename": str(output)},
+    )
+    assert wf.check() is True
+    assert "output file is missing" in capsys.readouterr().out
 
 
 def test_check_missing_sidecar_with_existing_output_fails_closed(tmp_path):
@@ -868,7 +895,7 @@ def test_db_command_check_and_dry_run_mutually_exclusive():
 
     from schema_scribe.app import app
 
-    result = CliRunner().invoke(app, ["db", "--check", "--dry-run"])
+    result = CliRunner().invoke(app, ["db", "--check", "--dry-run", "--output", "md"])
     assert result.exit_code == 1
     assert "--check and --dry-run are mutually exclusive" in result.output
 
@@ -925,6 +952,7 @@ def test_db_command_check_exits_1_when_schema_changed(monkeypatch, tmp_path):
     from schema_scribe.app import app
 
     output_path = tmp_path / "catalog.md"
+    output_path.write_text("# OLD DOCUMENT\n", encoding="utf-8")
     SchemaState.save(
         {"tables": {}, "views": [], "generated_at": "x"},
         str(output_path) + ".schema-state.json",
@@ -933,7 +961,7 @@ def test_db_command_check_exits_1_when_schema_changed(monkeypatch, tmp_path):
         "schema_scribe.app.ConfigManager",
         _check_cli_config_manager(output_path),
     )
-    result = CliRunner().invoke(app, ["db", "--check", "--config", "fake.yaml"])
+    result = CliRunner().invoke(app, ["db", "--check", "--output", "md", "--config", "fake.yaml"])
     assert result.exit_code == 1
 
 
@@ -946,6 +974,7 @@ def test_db_command_check_exits_0_when_up_to_date(monkeypatch, tmp_path):
     from schema_scribe.app import app
 
     output_path = tmp_path / "catalog.md"
+    output_path.write_text("# OLD DOCUMENT\n", encoding="utf-8")
     SchemaState.save(
         {
             "tables": {
@@ -960,7 +989,7 @@ def test_db_command_check_exits_0_when_up_to_date(monkeypatch, tmp_path):
         "schema_scribe.app.ConfigManager",
         _check_cli_config_manager(output_path),
     )
-    result = CliRunner().invoke(app, ["db", "--check", "--config", "fake.yaml"])
+    result = CliRunner().invoke(app, ["db", "--check", "--output", "md", "--config", "fake.yaml"])
     assert result.exit_code == 0
 
 
@@ -1228,7 +1257,7 @@ def test_db_command_interactive_and_check_mutually_exclusive():
 
     from schema_scribe.app import app
 
-    result = CliRunner().invoke(app, ["db", "--interactive", "--check"])
+    result = CliRunner().invoke(app, ["db", "--interactive", "--check", "--output", "md"])
     assert result.exit_code == 1
     assert "--check and --interactive are mutually exclusive" in result.output
 

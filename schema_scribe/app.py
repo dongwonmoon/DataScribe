@@ -61,6 +61,11 @@ def handle_exceptions(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
+        except typer.Exit:
+            # typer.Exit is the CLI's own control flow (e.g. --check FAILED,
+            # flag validation); re-raise untouched so it does not fall into
+            # the generic handler and print an "unknown error" traceback.
+            raise
         except CIError as e:
             logger.error(str(e))
             raise typer.Exit(code=1)
@@ -391,6 +396,14 @@ def scan_db(
         )
         raise typer.Exit(code=1)
 
+    if check and not output_profile:
+        typer.echo(
+            "Error: --check requires --output (the documentation target to "
+            "verify against its baseline).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     if check and dry_run:
         typer.echo(
             "Error: --check and --dry-run are mutually exclusive.", err=True
@@ -462,30 +475,32 @@ def scan_db(
         workflow.landscape(hints=landscape_hints)
         return
 
-    # Regular, check, and interactive paths: construct the LLM client and
-    # writer before opening the DB handle — same abandoned-connection rule
-    # as the landscape path (Slice 8 final review finding 3).
-    llm_client, _ = cfg_manager.get_llm_client(llm_profile)
-    writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
-    db_connector, db_name = cfg_manager.get_db_connector(db_profile)
-
     if check:
-        # The writer is constructed so check() can render a diff of the new
-        # output against the existing file; check() never calls write().
+        # --check is a structural gate: the verdict is a pure function of
+        # connector metadata, so the LLM client is NEVER constructed here
+        # (panel C1, 2026-08-11). The writer supplies the output target.
+        writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+        db_connector, db_name = cfg_manager.get_db_connector(db_profile)
         workflow = DbWorkflow(
             db_connector=db_connector,
-            llm_client=llm_client,
+            llm_client=None,
             writer=writer,
             db_profile_name=db_name,
             output_profile_name=out_name,
             writer_params=writer_params,
-            provider_name=llm_provider_name,
         )
         if workflow.check():
             logger.error("CI CHECK FAILED: schema documentation is outdated.")
             raise typer.Exit(code=1)
         logger.info("CI CHECK PASSED: schema documentation is up-to-date.")
         return
+
+    # Regular and interactive paths: construct the LLM client and writer
+    # before opening the DB handle — same abandoned-connection rule as the
+    # landscape path (Slice 8 final review finding 3).
+    llm_client, _ = cfg_manager.get_llm_client(llm_profile)
+    writer, out_name, writer_params = cfg_manager.get_writer(output_profile)
+    db_connector, db_name = cfg_manager.get_db_connector(db_profile)
 
     if interactive:
         workflow = DbWorkflow(

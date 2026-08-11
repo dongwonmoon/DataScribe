@@ -222,20 +222,27 @@ class DbWorkflow:
         sidecar and the existing output file; returns True iff anything
         would change. Never writes to the output target.
 
-        Semantics (defined by Slice 6.1):
+        Semantics (Slice 6.1, revised 2026-08-11 — panel C1/C2/C7):
+        - `--check` exists to avoid wasteful regeneration: if the schema
+          has not changed, the docs are still valid. The verdict is a pure
+          function of connector metadata — NO LLM calls are made here.
         - No sidecar and no existing output file → False ("no existing
-          documentation to compare").
+          documentation to compare", exit 0).
+        - Sidecar present but output file MISSING → True (the documentation
+          is outdated/missing — must regenerate; exit 1).
         - Sidecar present → SchemaState.classify drives the result; one
           status line per table (unchanged/added/removed/
           structurally-changed) is printed.
-        - Output file present → a unified diff of the new render vs the
-          existing content is also printed. An existing output file
-          without a sidecar fails closed: every table classifies as added.
+        - Output file present without a sidecar fails closed: every table
+          classifies as added.
+        - The LLM-based prose diff is gone: LLM output is nondeterministic,
+          so a diff of fresh renders against the file is pure noise on an
+          unchanged schema (panel C9). "What would change" is answered by
+          the classification report; the new payload is previewed by
+          --dry-run --full.
 
-        The DB connection is closed by generate_catalog().
+        The DB connection is closed by check() itself.
         """
-        catalog = self.generate_catalog()
-        curr = SchemaState.snapshot(catalog)
         output_filename = self.writer_params.get("output_filename")
         sidecar_path = (
             f"{output_filename}.schema-state.json" if output_filename else None
@@ -247,8 +254,19 @@ class DbWorkflow:
 
         if prev is None and not output_exists:
             print("no existing documentation to compare")
+            self.db_connector.close()
             return False
 
+        if prev is not None and not output_exists:
+            print(
+                "error: the documentation output file is missing while its "
+                "baseline exists — the documentation is outdated; "
+                "regenerate with 'db --output'."
+            )
+            self.db_connector.close()
+            return True
+
+        curr = self._snapshot_from_connector()
         result = SchemaState.classify(prev, curr)
         unchanged = sorted(
             set(curr["tables"])
@@ -266,28 +284,31 @@ class DbWorkflow:
         for name in result["structurally_changed"]:
             print(f"  [structurally-changed] {name}")
 
-        changed = bool(
+        self.db_connector.close()
+
+        return bool(
             result["added"] or result["removed"] or result["structurally_changed"]
         )
 
-        if output_exists:
-            try:
-                new_render = self._render_catalog(catalog)
-            except ValueError as e:
-                print(f"  (cannot render diff: {e})")
-            else:
-                with open(output_filename, "r", encoding="utf-8") as f:
-                    existing = f.read()
-                diff = difflib.unified_diff(
-                    existing.splitlines(),
-                    new_render.splitlines(),
-                    fromfile=str(output_filename),
-                    tofile="<new render>",
-                    lineterm="",
-                )
-                print("\n".join(diff))
-
-        return changed
+    def _snapshot_from_connector(self) -> Dict[str, Any]:
+        """Builds the current schema snapshot from connector data only —
+        the --check verdict never needs LLM output (panel C1, 2026-08-11).
+        """
+        tables = self.db_connector.get_tables()
+        columns_by_table = {
+            table: self.db_connector.get_columns(table) for table in tables
+        }
+        views = self.db_connector.get_views()
+        foreign_keys = self.db_connector.get_foreign_keys()
+        catalog = {
+            "tables": [
+                {"name": name, "columns": columns}
+                for name, columns in columns_by_table.items()
+            ],
+            "views": views,
+            "foreign_keys": foreign_keys,
+        }
+        return SchemaState.snapshot(catalog)
 
     def landscape(self, hints: bool = False) -> None:
         """
