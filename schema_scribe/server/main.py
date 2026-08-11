@@ -24,6 +24,7 @@ from schema_scribe.workflows.dbt_workflow import DbtWorkflow
 from schema_scribe.workflows.lineage_workflow import LineageWorkflow
 from schema_scribe.core.exceptions import DataScribeError, CIError
 from schema_scribe.server.jobs import JobManager, QueueFullError
+from schema_scribe.services.landscape import build_landscape
 from schema_scribe.utils.counters import CountingCursor, CountingLLM
 from schema_scribe.utils.logger import get_logger
 from contextlib import asynccontextmanager
@@ -161,13 +162,20 @@ def _run_db_scan_job(config_path: str, db_profile: str) -> dict:
         "llm_calls": counting_llm.count,
         "engine_ms": engine_ms,
     }
+    # Landscape is LLM-free and computed from the generated catalog — the
+    # demo's orientation screen (scale / core tables / clusters).
+    landscape = build_landscape(
+        [t["name"] for t in catalog["tables"]],
+        {t["name"]: t["columns"] for t in catalog["tables"]},
+        catalog.get("foreign_keys", []),
+    )
     # Update the catalog cache (read surface for /api/catalog and the UI).
     try:
         with open(CATALOG_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(catalog, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Failed to write catalog cache: {e}")
-    return {"catalog": catalog, "metrics": metrics}
+    return {"catalog": catalog, "landscape": landscape, "metrics": metrics}
 
 
 def _manager(request):
@@ -217,6 +225,7 @@ def _job_state(job) -> dict:
         "finished_at": job.finished_at,
         "metrics": job.result.get("metrics") if job.result else None,
         "has_catalog": bool(job.result and job.result.get("catalog")),
+        "has_landscape": bool(job.result and job.result.get("landscape")),
     }
 
 
@@ -228,6 +237,8 @@ def get_job(job_id: str, fastapi_request: Request):
     state = _job_state(job)
     if state["has_catalog"]:
         state["catalog"] = job.result["catalog"]
+    if state["has_landscape"]:
+        state["landscape"] = job.result["landscape"]
     return state
 
 

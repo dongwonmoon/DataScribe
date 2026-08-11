@@ -142,8 +142,24 @@
       const el = document.getElementById('catalog');
       el.dataset.jobId = job.job_id;
       const c = job.catalog;
+      const l = job.landscape;
       let html = `<div class="status">from job <code>${job.job_id}</code></div>`;
-      html += `<h3>Scale: ${c.tables ? c.tables.length : 0} tables</h3>`;
+      if (l) {
+        html += `<h3>🧭 Orientation</h3>`;
+        html += `<p class="metric">${l.scale.tables} tables / ${l.scale.columns} columns</p>`;
+        if (l.core_tables && l.core_tables.length) {
+          html += `<p class="metric"><b>Core tables (where to start):</b> ` +
+            l.core_tables.slice(0, 5).map(t => t.table).join(', ') + '</p>';
+        }
+        if (l.clusters) {
+          const groups = Object.entries(l.clusters).filter(([, m]) => m.length).slice(0, 8);
+          if (groups.length) {
+            html += `<p class="metric"><b>Clusters:</b> ` +
+              groups.map(([g, m]) => `${g} (${m.length})`).join(', ') + '</p>';
+          }
+        }
+      }
+      html += `<h3>📄 Tables (${c.tables ? c.tables.length : 0})</h3>`;
       for (const table of (c.tables || [])) {
         html += `<h4>📄 ${table.name}</h4>`;
         if (table.ai_summary) html += `<p class="metric">${table.ai_summary}</p>`;
