@@ -124,8 +124,11 @@
         document.getElementById('queue-status').textContent = active
           ? `${active} active job(s)…` : '';
         const done = data.jobs.find(j => j.status === 'succeeded' && j.has_catalog);
-        if (done && !document.getElementById('catalog').dataset.jobId) {
-          renderCatalog(done);
+        const catalogEl = document.getElementById('catalog');
+        if (done && done.job_id !== catalogEl.dataset.jobId) {
+          // The board list carries has_catalog only; fetch the full job
+          // state (which includes the catalog payload) before rendering.
+          api(`/api/jobs/${done.job_id}`).then(job => renderCatalog(job));
         }
         if (!active) stopPolling();
       } catch (e) { /* transient */ }
