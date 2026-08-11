@@ -93,9 +93,13 @@ class CatalogGenerator:
         """Parses the batched LLM response into (summary, per-column list).
 
         Contract (TABLE_BATCH_PROMPT): a "SUMMARY:" line plus numbered
-        "N: <description>" lines. Missing column lines fall back to empty
-        strings (drafts — the review loop is the safety net); extra lines
-        are ignored. Model-agnostic: no JSON schema dependency.
+        "N: <description>" lines. "N." delimiters are also accepted (a
+        model echoing the input's "1. name" style must not zero out the
+        whole table — panel C6, 2026-08-11). Missing column lines and a
+        missing SUMMARY line are logged as warnings — the failure is never
+        silent (panel C5). Descriptions for missing lines fall back to
+        empty strings (drafts); extra/out-of-range lines are ignored.
+        Model-agnostic: no JSON schema dependency.
         """
         summary = ""
         by_index: Dict[int, str] = {}
@@ -104,7 +108,7 @@ class CatalogGenerator:
             if stripped.upper().startswith("SUMMARY:"):
                 summary = stripped[len("SUMMARY:"):].strip()
                 continue
-            match = re.match(r"^(\d+)\s*:\s*(.+)$", stripped)
+            match = re.match(r"^(\d+)\s*[:.]\s*(.+)$", stripped)
             if match:
                 idx = int(match.group(1))
                 if 1 <= idx <= column_count:
@@ -112,6 +116,18 @@ class CatalogGenerator:
         descriptions = [
             by_index.get(i, "") for i in range(1, column_count + 1)
         ]
+        missing = [
+            i for i in range(1, column_count + 1) if i not in by_index
+        ]
+        if missing:
+            logger.warning(
+                f"Batch response missing {len(missing)} column line(s): "
+                f"{['#' + str(i) for i in missing]} — empty drafts."
+            )
+        if not summary:
+            logger.warning(
+                "Batch response missing SUMMARY line — empty table summary."
+            )
         return summary, descriptions
 
     def generate_catalog(
